@@ -10,7 +10,7 @@ import shinyswatch  # For themes
 
 # OpenAI API Key (Replace with your actual key)
 #OPENAI_API_KEY = "sk-pr"
-os.environ["OPENAI_API_KEY"] = os.getenv("API_VAR")
+#os.environ["OPENAI_API_KEY"] = os.getenv("API_VAR")
 # Global storage for extracted content
 
 ## holds reactive value that is dictionary. dictionary is initialized while also initializing a reactive.value.
@@ -67,7 +67,7 @@ def answer_question(query):
         return "No relevant text found in PDF.", [], []
 
     # use OpenAI API
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+    client = openai.OpenAI(api_key=os.getenv("API_VAR"))
 
     response = client.chat.completions.create(
         model="gpt-4",
