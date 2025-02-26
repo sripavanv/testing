@@ -6,3 +6,4 @@ shinyswatch
 pandas
 Jinja2
 chromadb
+numpy

@@ -3,11 +3,12 @@ import pandas as pd
 import openai
 import pdfplumber
 import base64
-import io 
+import io
 import os
 import chromadb
 from chromadb.utils import embedding_functions
 from PIL import Image, UnidentifiedImageError
+import numpy as np
 import shinyswatch  # For themes
 
 # ✅ Initialize ChromaDB (Persistent storage)
@@ -57,22 +58,39 @@ def extract_text_tables_images_from_pdfs(files):
                         table_id = f"{file}-p{page_num}-table{i}"
                         collection.add(ids=[table_id], documents=[table_text])
 
-                # ✅ Extract images
+                # ✅ Extract and embed images
                 for i, img in enumerate(page.images):
                     try:
                         img_data = img["stream"].get_data()
                         image = Image.open(io.BytesIO(img_data))
                         images.append(image)
+
+                        # ✅ Convert image to base64 and generate embeddings
+                        buffered = io.BytesIO()
+                        image.save(buffered, format="PNG")
+                        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+                        # ✅ Generate image embedding using OpenAI's CLIP model
+                        response = openai.embeddings.create(
+                            model="image-embedding-clip",
+                            input=img_base64
+                        )
+                        image_embedding = response["data"][0]["embedding"]
+
+                        # ✅ Store image embedding in ChromaDB
+                        image_id = f"{file}-p{page_num}-image{i}"
+                        collection.add(ids=[image_id], embeddings=[image_embedding], documents=["Image"])
+
                     except UnidentifiedImageError:
                         print("Skipping invalid image in PDF")
 
     extracted_data.set({"text": text_chunks, "tables": tables, "images": images})
-    print("✅ PDF processing complete.")
+    print("✅ PDF processing complete with image embeddings.")
 
 def answer_question(query):
-    """Retrieves relevant chunks from ChromaDB and generates an answer with GPT-4."""
+    """Retrieves relevant text, tables, and images from ChromaDB and generates an answer with GPT-4."""
     
-    # ✅ Retrieve top 5 relevant chunks from ChromaDB
+    # ✅ Retrieve top 5 relevant text chunks from ChromaDB
     results = collection.query(query_texts=[query], n_results=5)
     relevant_chunks = results["documents"][0] if results["documents"] else []
 
@@ -89,8 +107,19 @@ def answer_question(query):
 
     relevant_tables.set(matching_tables)  # Store relevant tables
 
-    # ✅ Assume all images are relevant for now
-    relevant_images.set(extracted_data.get()["images"])
+    # ✅ Retrieve relevant images based on query similarity
+    image_results = collection.query(query_texts=[query], n_results=3, filter={"documents": "Image"})
+    relevant_image_ids = image_results["ids"][0] if image_results["ids"] else []
+    
+    # ✅ Extract actual images matching the retrieved image IDs
+    matching_images = []
+    for image_id in relevant_image_ids:
+        page_num = int(image_id.split("-p")[1].split("-image")[0])
+        images_on_page = extracted_data.get()["images"]
+        if page_num < len(images_on_page):
+            matching_images.append(images_on_page[page_num])
+
+    relevant_images.set(matching_images)  # Store relevant images
 
     # ✅ Call OpenAI for answer
     client = openai.OpenAI(api_key=os.getenv("API_VAR"))
@@ -116,7 +145,7 @@ app_ui = ui.page_fluid(
             ui.sidebar(  
                 ui.input_file("pdf_file", "Upload PDF(s)", multiple=True, accept=[".pdf"]),
                 ui.input_text("query", "Enter your question"),
-                ui.input_action_button("ask", "Ask")  # ✅ Now only runs on button click!
+                ui.input_action_button("ask", "Ask")
             ),
 
             ui.card(  
@@ -144,9 +173,8 @@ def server(input, output, session):
             print("📂 Processing PDFs...")
             extract_text_tables_images_from_pdfs([f["datapath"] for f in files])
 
-    # ✅ Button click manually triggers processing
     @reactive.effect
-    @reactive.event(input.ask)  # ✅ Now ensures it ONLY runs when "Ask" is clicked
+    @reactive.event(input.ask)
     def update_answer():
         """Generate an answer ONLY when the button is clicked."""
         query = input.query()
@@ -154,29 +182,23 @@ def server(input, output, session):
             print(f"📝 Query: {query}")
             answer_text.set(answer_question(query))
 
-    # ✅ Define response output
     @render.text
     def response():
         return answer_text.get() if answer_text.get() else "No response yet."
 
     output.response = response  
 
-    # ✅ Define table output
     @render.table
     def table_output():
-        """Display relevant tables."""
         tables = relevant_tables.get()
         return tables[0] if tables else pd.DataFrame({"Message": ["No relevant tables found."]})
 
     output.table_output = table_output  
 
-    # ✅ Define image output
     @render.ui
     def image_output():
-        """Display relevant images."""
         images = relevant_images.get()
         image_tags = []
-
         for img in images:
             buffered = io.BytesIO()
             img.save(buffered, format="PNG")
