@@ -35,6 +35,11 @@ def chunk_text(text, chunk_size=500, overlap=100):
     chunks = [" ".join(words[i:i + chunk_size]) for i in range(0, len(words), chunk_size - overlap)]
     return chunks
 
+def describe_image(image):
+    """Returns a simple description of an image using heuristics."""
+    width, height = image.size
+    return f"Image of size {width}x{height} with various colors."
+
 def extract_text_tables_images_from_pdfs(files):
     """Efficiently extracts text, tables, and images, storing embeddings."""
     text_chunks, tables, images = [], [], []
@@ -67,28 +72,25 @@ def extract_text_tables_images_from_pdfs(files):
                             metadatas=[{"type": "table"}]
                         )
 
-                # ✅ Extract & batch embed images
-                batch_images, image_ids = [], []
+                # ✅ Extract & describe images for embedding
+                image_descriptions, image_ids = [], []
                 for i, img in enumerate(page.images):
                     try:
                         img_data = img["stream"].get_data()
                         image = Image.open(io.BytesIO(img_data))
                         images.append(image)
 
-                        # ✅ Convert image to base64 for batch embedding
-                        buffered = io.BytesIO()
-                        image.save(buffered, format="PNG")
-                        img_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-                        batch_images.append(img_base64)
+                        # ✅ Describe image and store text embedding
+                        description = describe_image(image)
+                        image_descriptions.append(description)
                         image_ids.append(f"{file}-p{page_num}-image{i}")
 
                     except UnidentifiedImageError:
                         continue
 
-                # ✅ Send batch image embedding request
-                if batch_images:
-                    response = openai.embeddings.create(model="image-embedding-clip", input=batch_images)
+                # ✅ Send batch text descriptions to OpenAI for embedding
+                if image_descriptions:
+                    response = openai.embeddings.create(model="text-embedding-ada-002", input=image_descriptions)
                     image_embeddings = [res["embedding"] for res in response["data"]]
                     collection.add(
                         ids=image_ids,
