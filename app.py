@@ -5,68 +5,94 @@ import pdfplumber
 import base64
 import io 
 import os
+import chromadb
+from chromadb.utils import embedding_functions
 from PIL import Image, UnidentifiedImageError
 import shinyswatch  # For themes
 
-# OpenAI API Key (Replace with your actual key)
-#OPENAI_API_KEY = "sk-pr"
-#os.environ["OPENAI_API_KEY"] = os.getenv("API_VAR")
-# Global storage for extracted content
+# ✅ Initialize ChromaDB (Persistent storage)
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-## holds reactive value that is dictionary. dictionary is initialized while also initializing a reactive.value.
-extracted_data = reactive.value({"text": "", "tables": [], "images": []})
-###reactive value holding a string
-answer_text = reactive.value("")  # Stores the AI response
-###reactive value holdin a list
-relevant_tables = reactive.value([])  # Stores only relevant tables
-relevant_images = reactive.value([])  # Stores only relevant images
+# ✅ Define embedding function using OpenAI
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(api_key=os.getenv("API_VAR"))
 
+# ✅ Create or load collection
+collection = chroma_client.get_or_create_collection(name="pdf_embeddings", embedding_function=openai_ef)
+
+# ✅ Holds extracted data
+extracted_data = reactive.value({"text": [], "tables": [], "images": []})
+answer_text = reactive.value("")  # Stores GPT response
+relevant_tables = reactive.value([])  # Stores relevant tables
+relevant_images = reactive.value([])  # Stores relevant images
 
 def extract_text_tables_images_from_pdfs(files):
-    """Extracts text, tables, and images from uploaded PDFs."""
-    ## we are initializing again so in each loop, values dont get mixed up and they can be kept in thier own page
-    text, tables, images = "", [], []
+    """Extracts text, tables, and images from PDFs and stores embeddings in ChromaDB."""
+    text_chunks, tables, images = [], [], []
 
-    for _ in files:
-        with pdfplumber.open(_) as pdf:
-            for page in pdf.pages:
+    for file in files:
+        with pdfplumber.open(file) as pdf:
+            for page_num, page in enumerate(pdf.pages):
                 if page.extract_text():
-                    text += page.extract_text() + "\n"
+                    chunk_text = page.extract_text()
+                    text_chunks.append(chunk_text)
 
-                # pdf plumber Extract tables
+                    # ✅ Chunking text into 500-word overlapping windows
+                    words = chunk_text.split()
+                    chunk_size = 100
+                    overlap = 20
+                    for i in range(0, len(words), chunk_size - overlap):
+                        chunk = " ".join(words[i:i + chunk_size])
+                        chunk_id = f"{file}-p{page_num}-chunk{i}"
+                        collection.add(ids=[chunk_id], documents=[chunk])
+
+                # ✅ Extract tables
                 page_tables = page.extract_tables()
-                for table in page_tables:
+                for i, table in enumerate(page_tables):
                     if table and len(table) > 1:
-                        df = pd.DataFrame(table)
-                        #df.columns = df.iloc[0]  # Use first row as column names
-                        #df = df[1:].reset_index(drop=True)
-                        df = df.drop(0).reset_index(drop=True)  ##drop row 1 which is now headers
+                        df = pd.DataFrame(table).drop(0).reset_index(drop=True)
                         tables.append(df)
+                        
+                        # ✅ Store tables as text embeddings
+                        table_text = "\n".join([" | ".join(map(str, row)) for row in df.values])
+                        table_id = f"{file}-p{page_num}-table{i}"
+                        collection.add(ids=[table_id], documents=[table_text])
 
-                # pdf plumber Extract images
-                for img in page.images:
+                # ✅ Extract images
+                for i, img in enumerate(page.images):
                     try:
-                        img_data = img["stream"].get_data()  ##img holds the dictionary containing metadata about an image inside a PDF. 
-                        #img[stream] holds the image data
-                        #use pil package to covert bytes into file
+                        img_data = img["stream"].get_data()
                         image = Image.open(io.BytesIO(img_data))
                         images.append(image)
                     except UnidentifiedImageError:
                         print("Skipping invalid image in PDF")
 
-    extracted_data.set({"text": text, "tables": tables, "images": images})
-    print("✅ PDF processing complete: Text extracted & stored.")
-
+    extracted_data.set({"text": text_chunks, "tables": tables, "images": images})
+    print("✅ PDF processing complete.")
 
 def answer_question(query):
-    """Retrieves relevant chunks and generates an answer with GPT-4."""
-    data = extracted_data.get() #### retrive the current values using get()
-    context = data["text"][:5000]  # Limit context for API call
+    """Retrieves relevant chunks from ChromaDB and generates an answer with GPT-4."""
+    
+    # ✅ Retrieve top 5 relevant chunks from ChromaDB
+    results = collection.query(query_texts=[query], n_results=5)
+    relevant_chunks = results["documents"][0] if results["documents"] else []
 
-    if not context:
-        return "No relevant text found in PDF.", [], []
+    if not relevant_chunks:
+        return "No relevant text found in PDF."
 
-    # use OpenAI API
+    context = "\n\n".join(relevant_chunks)[:5000]  # Limit to 5000 chars for GPT-4
+
+    # ✅ Find relevant tables
+    matching_tables = []
+    for table in extracted_data.get()["tables"]:
+        if any(query.lower() in str(cell).lower() for cell in table.to_numpy().flatten()):
+            matching_tables.append(table)
+
+    relevant_tables.set(matching_tables)  # Store relevant tables
+
+    # ✅ Assume all images are relevant for now
+    relevant_images.set(extracted_data.get()["images"])
+
+    # ✅ Call OpenAI for answer
     client = openai.OpenAI(api_key=os.getenv("API_VAR"))
 
     response = client.chat.completions.create(
@@ -78,48 +104,33 @@ def answer_question(query):
     )
 
     answer = response.choices[0].message.content
-    print(f" OpenAI Response: {answer}")  # ✅ Debugging print
-
-    # Find relevant tables. it is matched using keyworkds from querry
-    matching_tables = []
-    for table in data["tables"]:
-        if any(query.lower() in str(cell).lower() for cell in table.to_numpy().flatten()):
-            matching_tables.append(table)
-
-    # store only relevant tables
-    relevant_tables.set(matching_tables)
-
-    # Assume all images are relevant (since images don’t contain searchable text)
-    relevant_images.set(data["images"])
-
+    print(f"🔍 GPT-4 Response: {answer}")  
     return answer
 
-
-# Define UI
+# ✅ Define UI
 app_ui = ui.page_fluid(
-    ui.TagList(  
+    ui.TagList(
         ui.h1("Python Shiny PDF AI Assistant"),
         
         ui.layout_sidebar(
             ui.sidebar(  
                 ui.input_file("pdf_file", "Upload PDF(s)", multiple=True, accept=[".pdf"]),
                 ui.input_text("query", "Enter your question"),
-                ui.input_action_button("ask", "Ask")
+                ui.input_action_button("ask", "Ask")  # ✅ Now only runs on button click!
             ),
 
             ui.card(  
                 ui.h3("Response"),
-                ui.output_text("response"),  # ✅ Fixed Output
+                ui.output_text("response"),
                 ui.h3("Relevant Tables"),
-                ui.output_table("table_output"),  # ✅ Fixed Output
+                ui.output_table("table_output"),
                 ui.h3("Relevant Images"),
-                ui.output_ui("image_output")  # ✅ Fixed Output
+                ui.output_ui("image_output")
             )
         )
     ),
-    theme=shinyswatch.theme.darkly()  
+    theme=shinyswatch.theme.darkly()
 )
-
 
 # ✅ Define Server Logic
 def server(input, output, session):
@@ -127,42 +138,42 @@ def server(input, output, session):
 
     @reactive.effect
     def process_files():
-        """Extract data when PDFs are uploaded"""
+        """Process uploaded PDFs and store embeddings."""
         files = input.pdf_file()
         if files:
-            print("📂 PDF Uploaded: Processing...")
+            print("📂 Processing PDFs...")
             extract_text_tables_images_from_pdfs([f["datapath"] for f in files])
 
+    # ✅ Button click manually triggers processing
     @reactive.effect
+    @reactive.event(input.ask)  # ✅ Now ensures it ONLY runs when "Ask" is clicked
     def update_answer():
-        """Answer questions when button is clicked"""
-        if input.ask():
-            query = input.query()
-            if query and extracted_data.get()["text"]:
-                print(f"📝 Processing Query: {query}")  # ✅ Debugging print
-                answer = answer_question(query)
-                answer_text.set(answer)  # ✅ Store AI response in reactive value
+        """Generate an answer ONLY when the button is clicked."""
+        query = input.query()
+        if query:
+            print(f"📝 Query: {query}")
+            answer_text.set(answer_question(query))
 
-    # ✅ Properly define response output
+    # ✅ Define response output
     @render.text
     def response():
         return answer_text.get() if answer_text.get() else "No response yet."
 
-    output.response = response  # ✅ Assign output
+    output.response = response  
 
-    # ✅ Properly define table output
+    # ✅ Define table output
     @render.table
     def table_output():
-        """Display only relevant tables after asking a question."""
+        """Display relevant tables."""
         tables = relevant_tables.get()
         return tables[0] if tables else pd.DataFrame({"Message": ["No relevant tables found."]})
 
-    output.table_output = table_output  # ✅ Assign output
+    output.table_output = table_output  
 
-    # ✅ Properly define image output
+    # ✅ Define image output
     @render.ui
     def image_output():
-        """Display only relevant images after asking a question."""
+        """Display relevant images."""
         images = relevant_images.get()
         image_tags = []
 
@@ -174,9 +185,7 @@ def server(input, output, session):
 
         return ui.HTML("".join(image_tags) if image_tags else "No relevant images found.")
 
-    output.image_output = image_output  # ✅ Assign output
-
+    output.image_output = image_output  
 
 # ✅ Run the app
 app = App(app_ui, server)
-#app.run()
