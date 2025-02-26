@@ -20,35 +20,45 @@ openai_ef = embedding_functions.OpenAIEmbeddingFunction(api_key=os.getenv("API_V
 collection = chroma_client.get_or_create_collection(name="pdf_embeddings", embedding_function=openai_ef)
 
 # ✅ Holds extracted data
-extracted_data = reactive.value({"text": "", "tables": [], "images": []})
+extracted_data = reactive.value({"text": [], "tables": [], "images": []})
 answer_text = reactive.value("")  # Stores GPT response
 relevant_tables = reactive.value([])  # Stores relevant tables
 relevant_images = reactive.value([])  # Stores relevant images
 
-def extract_text_from_pdfs(files):
-    """Extracts text from PDFs and stores as embeddings in ChromaDB."""
-    text, tables, images = "", [], []
+def extract_text_tables_images_from_pdfs(files):
+    """Extracts text, tables, and images from PDFs and stores embeddings in ChromaDB."""
+    text_chunks, tables, images = [], [], []
 
     for file in files:
         with pdfplumber.open(file) as pdf:
             for page_num, page in enumerate(pdf.pages):
                 if page.extract_text():
                     chunk_text = page.extract_text()
-                    text += chunk_text + "\n"
+                    text_chunks.append(chunk_text)
 
-                    # ✅ Store text chunk in ChromaDB
-                    chunk_id = f"{file}-{page_num}"
-                    collection.add(ids=[chunk_id], documents=[chunk_text])
+                    # ✅ Chunking text into 500-word overlapping windows
+                    words = chunk_text.split()
+                    chunk_size = 100
+                    overlap = 20
+                    for i in range(0, len(words), chunk_size - overlap):
+                        chunk = " ".join(words[i:i + chunk_size])
+                        chunk_id = f"{file}-p{page_num}-chunk{i}"
+                        collection.add(ids=[chunk_id], documents=[chunk])
 
                 # ✅ Extract tables
                 page_tables = page.extract_tables()
-                for table in page_tables:
+                for i, table in enumerate(page_tables):
                     if table and len(table) > 1:
                         df = pd.DataFrame(table).drop(0).reset_index(drop=True)
                         tables.append(df)
+                        
+                        # ✅ Store tables as text embeddings
+                        table_text = "\n".join([" | ".join(map(str, row)) for row in df.values])
+                        table_id = f"{file}-p{page_num}-table{i}"
+                        collection.add(ids=[table_id], documents=[table_text])
 
                 # ✅ Extract images
-                for img in page.images:
+                for i, img in enumerate(page.images):
                     try:
                         img_data = img["stream"].get_data()
                         image = Image.open(io.BytesIO(img_data))
@@ -56,20 +66,31 @@ def extract_text_from_pdfs(files):
                     except UnidentifiedImageError:
                         print("Skipping invalid image in PDF")
 
-    extracted_data.set({"text": text, "tables": tables, "images": images})
+    extracted_data.set({"text": text_chunks, "tables": tables, "images": images})
     print("✅ PDF processing complete.")
 
 def answer_question(query):
     """Retrieves relevant chunks from ChromaDB and generates an answer with GPT-4."""
     
-    # ✅ Retrieve top 3 relevant chunks from ChromaDB
-    results = collection.query(query_texts=[query], n_results=3)
+    # ✅ Retrieve top 5 relevant chunks from ChromaDB
+    results = collection.query(query_texts=[query], n_results=5)
     relevant_chunks = results["documents"][0] if results["documents"] else []
 
     if not relevant_chunks:
-        return "No relevant text found in PDF."
+        return "No relevant text found in PDF.", [], []
 
     context = "\n\n".join(relevant_chunks)[:5000]  # Limit to 5000 chars for GPT-4
+
+    # ✅ Find relevant tables
+    matching_tables = []
+    for table in extracted_data.get()["tables"]:
+        if any(query.lower() in str(cell).lower() for cell in table.to_numpy().flatten()):
+            matching_tables.append(table)
+
+    relevant_tables.set(matching_tables)  # Store relevant tables
+
+    # ✅ Assume all images are relevant for now
+    relevant_images.set(extracted_data.get()["images"])
 
     # ✅ Call OpenAI for answer
     client = openai.OpenAI(api_key=os.getenv("API_VAR"))
@@ -121,7 +142,7 @@ def server(input, output, session):
         files = input.pdf_file()
         if files:
             print("📂 Processing PDFs...")
-            extract_text_from_pdfs([f["datapath"] for f in files])
+            extract_text_tables_images_from_pdfs([f["datapath"] for f in files])
 
     @reactive.effect
     def update_answer():
@@ -167,4 +188,3 @@ def server(input, output, session):
 
 # ✅ Run the app
 app = App(app_ui, server)
-
