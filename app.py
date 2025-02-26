@@ -91,7 +91,7 @@ def extract_text_tables_images_from_pdfs(files):
                 # ✅ Send batch text descriptions to OpenAI for embedding
                 if image_descriptions:
                     response = openai.embeddings.create(model="text-embedding-ada-002", input=image_descriptions)
-                    image_embeddings = [res["embedding"] for res in response["data"]]
+                    image_embeddings = [res.embedding for res in response.data]
                     collection.add(
                         ids=image_ids,
                         embeddings=image_embeddings,
