@@ -5,3 +5,4 @@ pillow
 shinyswatch
 pandas
 Jinja2
+chromadb
