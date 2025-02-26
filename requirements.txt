@@ -1,7 +1,6 @@
 shiny
 openai
 pdfplumber
-base64
 io 
 os
 PIL 
