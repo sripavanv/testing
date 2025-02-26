@@ -10,11 +10,15 @@ from chromadb.utils import embedding_functions
 from PIL import Image, UnidentifiedImageError
 import shinyswatch  # For themes
 
+# ✅ Ensure OpenAI API key is set correctly
+if os.getenv("API_VAR"):
+    os.environ["OPENAI_API_KEY"] = os.getenv("API_VAR")
+
 # ✅ Initialize ChromaDB (Persistent storage)
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 # ✅ Define embedding function using OpenAI
-openai_ef = embedding_functions.OpenAIEmbeddingFunction(api_key=os.getenv("API_VAR"))
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(api_key=os.getenv("OPENAI_API_KEY"))
 
 # ✅ Create or load collection
 collection = chroma_client.get_or_create_collection(name="pdf_embeddings", embedding_function=openai_ef)
@@ -72,8 +76,7 @@ def extract_text_tables_images_from_pdfs(files):
                         # ✅ Generate image embedding using OpenAI's CLIP model with correct API key
                         response = openai.embeddings.create(
                             model="image-embedding-clip",
-                            input=img_base64,
-                            api_key=os.getenv("API_VAR")  # ✅ Using the correct environment variable
+                            input=img_base64
                         )
                         image_embedding = response["data"][0]["embedding"]
 
@@ -122,7 +125,7 @@ def answer_question(query):
     relevant_images.set(matching_images)  # Store relevant images
 
     # ✅ Call OpenAI for answer with correct API key
-    client = openai.OpenAI(api_key=os.getenv("API_VAR"))
+    client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     response = client.chat.completions.create(
         model="gpt-4",
