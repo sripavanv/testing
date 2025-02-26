@@ -25,9 +25,6 @@ answer_text = reactive.value("")  # Stores GPT response
 relevant_tables = reactive.value([])  # Stores relevant tables
 relevant_images = reactive.value([])  # Stores relevant images
 
-# ✅ Create a trigger for manual updates
-trigger_ask = reactive.trigger()
-
 def extract_text_tables_images_from_pdfs(files):
     """Extracts text, tables, and images from PDFs and stores embeddings in ChromaDB."""
     text_chunks, tables, images = [], [], []
@@ -149,7 +146,7 @@ def server(input, output, session):
 
     # ✅ Button click manually triggers processing
     @reactive.effect
-    @reactive.event(input.ask)
+    @reactive.event(input.ask)  # ✅ Now ensures it ONLY runs when "Ask" is clicked
     def update_answer():
         """Generate an answer ONLY when the button is clicked."""
         query = input.query()
