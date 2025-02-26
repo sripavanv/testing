@@ -3,7 +3,7 @@ import pandas as pd
 import openai
 import pdfplumber
 import base64
-import io 
+import io
 import os
 from PIL import Image, UnidentifiedImageError
 import shinyswatch  # For themes
@@ -140,12 +140,21 @@ def server(input, output, session):
 
     output.table_output = table_output
 
-    # ✅ Define image output
+    # ✅ Properly define image output (Fix: Encode images)
     @render.ui
     def image_output():
         """Display only relevant images after asking a question."""
         images = relevant_images.get()
-        image_tags = [f'<img src="data:image/png;base64,{base64.b64encode(io.BytesIO().getvalue()).decode()}" width="200px" style="margin:5px;">' for img in images]
+        image_tags = []
+
+        for img in images:
+            try:
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")  # ✅ Fix: Save image correctly
+                img_base64 = base64.b64encode(buffered.getvalue()).decode()
+                image_tags.append(f'<img src="data:image/png;base64,{img_base64}" width="200px" style="margin:5px;">')
+            except Exception as e:
+                print(f"⚠️ Error displaying image: {e}")
 
         return ui.HTML("".join(image_tags) if image_tags else "No relevant images found.")
 
