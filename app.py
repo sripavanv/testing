@@ -144,14 +144,13 @@ def server(input, output, session):
             print("📂 Processing PDFs...")
             extract_text_tables_images_from_pdfs([f["datapath"] for f in files])
 
-    @reactive.effect
+    @reactive.event(input.ask)  # ✅ Now waits for the button click!
     def update_answer():
-        """Generate an answer **only when the button is clicked**."""
-        if input.ask():  # ✅ Runs only on button click
-            query = input.query()
-            if query:
-                print(f"📝 Query: {query}")
-                answer_text.set(answer_question(query))
+        """Generate an answer ONLY when the button is clicked."""
+        query = input.query()
+        if query:
+            print(f"📝 Query: {query}")
+            answer_text.set(answer_question(query))
 
     # ✅ Define response output
     @render.text
