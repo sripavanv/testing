@@ -77,7 +77,7 @@ def answer_question(query):
     relevant_chunks = results["documents"][0] if results["documents"] else []
 
     if not relevant_chunks:
-        return "No relevant text found in PDF.", [], []
+        return "No relevant text found in PDF."
 
     context = "\n\n".join(relevant_chunks)[:5000]  # Limit to 5000 chars for GPT-4
 
@@ -116,7 +116,7 @@ app_ui = ui.page_fluid(
             ui.sidebar(  
                 ui.input_file("pdf_file", "Upload PDF(s)", multiple=True, accept=[".pdf"]),
                 ui.input_text("query", "Enter your question"),
-                ui.input_action_button("ask", "Ask")
+                ui.input_action_button("ask", "Ask")  # ✅ Now only runs on button click!
             ),
 
             ui.card(  
@@ -146,8 +146,8 @@ def server(input, output, session):
 
     @reactive.effect
     def update_answer():
-        """Generate an answer based on stored embeddings."""
-        if input.ask():
+        """Generate an answer **only when the button is clicked**."""
+        if input.ask():  # ✅ Runs only on button click
             query = input.query()
             if query:
                 print(f"📝 Query: {query}")
