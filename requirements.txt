@@ -4,3 +4,4 @@ pdfplumber
 pillow
 shinyswatch
 pandas
+Jinja2
