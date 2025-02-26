@@ -1,7 +1,5 @@
 shiny
 openai
 pdfplumber
-io 
-os
 PIL 
 shinyswatch
