@@ -8,7 +8,6 @@ import os
 import chromadb
 from chromadb.utils import embedding_functions
 from PIL import Image, UnidentifiedImageError
-import numpy as np
 import shinyswatch  # For themes
 
 # ✅ Initialize ChromaDB (Persistent storage)
@@ -70,10 +69,11 @@ def extract_text_tables_images_from_pdfs(files):
                         image.save(buffered, format="PNG")
                         img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-                        # ✅ Generate image embedding using OpenAI's CLIP model
+                        # ✅ Generate image embedding using OpenAI's CLIP model with correct API key
                         response = openai.embeddings.create(
                             model="image-embedding-clip",
-                            input=img_base64
+                            input=img_base64,
+                            api_key=os.getenv("API_VAR")  # ✅ Using the correct environment variable
                         )
                         image_embedding = response["data"][0]["embedding"]
 
@@ -121,7 +121,7 @@ def answer_question(query):
 
     relevant_images.set(matching_images)  # Store relevant images
 
-    # ✅ Call OpenAI for answer
+    # ✅ Call OpenAI for answer with correct API key
     client = openai.OpenAI(api_key=os.getenv("API_VAR"))
 
     response = client.chat.completions.create(
