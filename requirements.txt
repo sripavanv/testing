@@ -7,6 +7,6 @@ shinyswatch
 pandas
 Jinja2
 chromadb
-langchain
+langchain 
 numpy
 langchain_community
