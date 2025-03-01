@@ -1,6 +1,7 @@
 import os
 import chromadb
 import tempfile
+import tiktoken
 import pandas as pd
 import PyPDF2
 from PIL import Image, UnidentifiedImageError
@@ -12,8 +13,6 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import Document
-import shutil
-import time
 from shiny import App, ui, render, reactive  # ✅ Shiny for Python
 
 # ✅ Ensure OpenAI API Key is set
@@ -50,11 +49,16 @@ reset_chromadb()
 # ✅ LLM for Question-Answering (with max_tokens limit)
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
-# ✅ Optimized Retriever (Fetch top 10 relevant chunks)
-retriever = chroma_db.as_retriever(search_kwargs={"k": 10})
+# ✅ Optimized Retriever (Fetch top 5 relevant chunks instead of 10)
+retriever = chroma_db.as_retriever(search_kwargs={"k": 5})
 
 # ✅ QA Chain with Retriever
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+
+# ✅ Function to count tokens before sending to GPT-4
+def count_tokens(text):
+    encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4's tokenizer
+    return len(encoding.encode(text))
 
 # ✅ Optimized PDF Processing
 def process_pdf(file_path):
@@ -63,8 +67,8 @@ def process_pdf(file_path):
         loader = PyPDFLoader(file_path)
         pages = loader.load()
 
-        # ✅ Smart Text Splitting (600 chars + 100 overlap for better context)
-        text_splitter = CharacterTextSplitter(chunk_size=600, chunk_overlap=100)
+        # ✅ Smart Text Splitting (400 chars + 50 overlap for better context)
+        text_splitter = CharacterTextSplitter(chunk_size=400, chunk_overlap=50)
         docs = text_splitter.split_documents(pages)
 
         # ✅ Add text-based chunks to ChromaDB
@@ -131,6 +135,18 @@ def server(input, output, session):
         print(f"📝 Query received: {query}")
 
         try:
+            # ✅ Retrieve relevant documents
+            retrieved_docs = retriever.get_relevant_documents(query)
+            combined_text = " ".join([doc.page_content for doc in retrieved_docs])  # Combine retrieved chunks
+
+            # ✅ Check token count before sending to GPT-4
+            total_tokens = count_tokens(query + combined_text)
+            print(f"🔢 Total tokens: {total_tokens}")
+
+            if total_tokens > 7500:  # Keep a buffer below 8192
+                answer_text.set("⚠️ Query is too long. Try asking a more specific question.")
+                return
+
             # ✅ Retrieve context and query GPT-4
             result = qa_chain.invoke(query)
             result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
