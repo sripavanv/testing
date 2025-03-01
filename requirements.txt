@@ -2,6 +2,7 @@ shiny
 openai
 pdfplumber
 PyPDF2
+pypdf
 pillow
 shinyswatch
 pandas
