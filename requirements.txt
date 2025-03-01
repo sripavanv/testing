@@ -11,3 +11,4 @@ chromadb
 langchain 
 numpy
 langchain_community
+tiktoken
