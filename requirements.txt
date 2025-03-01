@@ -1,9 +1,11 @@
 shiny
 openai
 pdfplumber
+PyPDF2
 pillow
 shinyswatch
 pandas
 Jinja2
 chromadb
+langchain
 numpy
