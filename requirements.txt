@@ -9,3 +9,4 @@ Jinja2
 chromadb
 langchain
 numpy
+langchain_community
