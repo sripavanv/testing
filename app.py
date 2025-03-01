@@ -1,5 +1,6 @@
 import os
 import chromadb
+import tempfile  # ✅ Use temporary directory for writable storage
 import pandas as pd
 import PyPDF2
 from PIL import Image, UnidentifiedImageError
@@ -20,6 +21,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("❌ OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
+# ✅ Use a writable temporary directory for ChromaDB
+CHROMA_DB_DIR = tempfile.mkdtemp()  # ✅ Generates a writable directory
+
 # ✅ Initialize OpenAI Embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
@@ -29,29 +33,17 @@ def reset_chromadb():
     global chroma_db
 
     try:
-        # ✅ If ChromaDB exists, delete all records
         if 'chroma_db' in globals() and chroma_db is not None:
-            chroma_db.delete(ids=None)  # ✅ Deletes all stored records
-            chroma_db.persist()  # ✅ Ensure deletion is saved
-            del chroma_db  # ✅ Delete reference to force reload
+            chroma_db.delete(ids=None)
+            chroma_db.persist()
+            del chroma_db
             print("🗑️ ChromaDB records successfully deleted.")
     except Exception as e:
         print(f"⚠️ Warning: Could not clear ChromaDB records properly: {e}")
 
-    # ✅ Ensure ChromaDB directory is fully deleted to prevent cache issues
-    for _ in range(3):  # Retry up to 3 times to avoid file lock issues
-        try:
-            if os.path.exists("./chroma_db"):
-                shutil.rmtree("./chroma_db")  # ✅ Remove the database folder
-                print("🗑️ ChromaDB directory deleted.")
-            break
-        except PermissionError:
-            print("⚠️ ChromaDB is locked, retrying in 2 seconds...")
-            time.sleep(2)  # Wait and retry
-
-    # ✅ Reinitialize ChromaDB
-    chroma_db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
-    print("✅ ChromaDB fully reset and reinitialized.")
+    # ✅ Reinitialize ChromaDB in a writable directory
+    chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
+    print(f"✅ ChromaDB reset and stored in: {CHROMA_DB_DIR}")
 
 # ✅ Initialize ChromaDB
 reset_chromadb()
@@ -84,7 +76,7 @@ app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered PDF Analyzer"),
     ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
     ui.input_text("query", "Ask a question about the document"),
-    ui.input_action_button("ask", "Ask AI"),  # Button to trigger search
+    ui.input_action_button("ask", "Ask AI"),
     ui.output_text("result_text")
 )
 
@@ -147,4 +139,4 @@ def server(input, output, session):
         return answer_text.get() if answer_text.get() else "No response yet."
 
 # ✅ Run Shiny App
-app = App(app_ui, server)   
+app = App(app_ui, server)
