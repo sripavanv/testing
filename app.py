@@ -1,164 +1,150 @@
-from shiny import App, ui, render, reactive
-import pandas as pd
-import openai
-import pdfplumber
-import base64
-import io
 import os
+import chromadb
+import pandas as pd
+import PyPDF2
 from PIL import Image, UnidentifiedImageError
-import shinyswatch  # For themes
+import io
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.chains import RetrievalQA
+from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.chat_models import ChatOpenAI
+from langchain.schema import Document
+import shutil
+import time
+from shiny import App, ui, render, reactive  # ✅ FIXED SHINY IMPORT
 
-# ✅ Ensure OpenAI API Key is set correctly
-if os.getenv("API_VAR"):
-    os.environ["OPENAI_API_KEY"] = os.getenv("API_VAR")
+# ✅ Ensure API Key is set
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("❌ OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
-# ✅ Global storage for extracted content
-extracted_data = reactive.value({"text": "", "tables": [], "images": []})
-answer_text = reactive.value("")  # Stores the AI response
-relevant_tables = reactive.value([])  # Stores only relevant tables
-relevant_images = reactive.value([])  # Stores only relevant images
+# ✅ Initialize OpenAI Embeddings
+embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-def extract_text_tables_images_from_pdfs(files):
-    """Extracts text, tables, and images from uploaded PDFs."""
-    text, tables, images = "", [], []
+# ✅ Function to completely reset ChromaDB
+def reset_chromadb():
+    """Completely deletes ChromaDB's database and resets everything to ensure fresh indexing."""
+    global chroma_db
 
-    for _ in files:
-        with pdfplumber.open(_) as pdf:
-            for page in pdf.pages:
-                if page.extract_text():
-                    text += page.extract_text() + "\n"
+    try:
+        # ✅ If ChromaDB exists, delete all records
+        if 'chroma_db' in globals() and chroma_db is not None:
+            chroma_db.delete(ids=None)  # ✅ Deletes all stored records
+            chroma_db.persist()  # ✅ Ensure deletion is saved
+            del chroma_db  # ✅ Delete reference to force reload
+            print("🗑️ ChromaDB records successfully deleted.")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not clear ChromaDB records properly: {e}")
 
-                # ✅ Extract tables
-                page_tables = page.extract_tables()
-                for table in page_tables:
-                    if table and len(table) > 1:
-                        df = pd.DataFrame(table).drop(0).reset_index(drop=True)
-                        tables.append(df)
+    # ✅ Ensure ChromaDB directory is fully deleted to prevent cache issues
+    for _ in range(3):  # Retry up to 3 times to avoid file lock issues
+        try:
+            if os.path.exists("./chroma_db"):
+                shutil.rmtree("./chroma_db")  # ✅ Remove the database folder
+                print("🗑️ ChromaDB directory deleted.")
+            break
+        except PermissionError:
+            print("⚠️ ChromaDB is locked, retrying in 2 seconds...")
+            time.sleep(2)  # Wait and retry
 
-                # ✅ Extract images
-                for img in page.images:
-                    try:
-                        img_data = img["stream"].get_data()
-                        image = Image.open(io.BytesIO(img_data))
-                        images.append(image)
-                    except UnidentifiedImageError:
-                        print("Skipping invalid image in PDF")
+    # ✅ Reinitialize ChromaDB
+    chroma_db = Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+    print("✅ ChromaDB fully reset and reinitialized.")
 
-    extracted_data.set({"text": text, "tables": tables, "images": images})
-    print("✅ PDF processing complete: Text extracted & stored.")
+# ✅ Initialize ChromaDB
+reset_chromadb()
 
-def answer_question(query):
-    """Retrieves relevant chunks and generates an answer with GPT-4."""
-    data = extracted_data.get()
-    context = data["text"][:5000]  # Limit context for API call
+# ✅ LLM for Question-Answering
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY)
+qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=chroma_db.as_retriever())
 
-    if not context:
-        return "No relevant text found in PDF."
+# ✅ Function to process PDFs (Extracts text + images)
+def process_pdf(file_path):
+    """Extracts text and images from PDFs and stores them in ChromaDB."""
+    try:
+        loader = PyPDFLoader(file_path)
+        pages = loader.load()
+        text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        docs = text_splitter.split_documents(pages)
 
-    # ✅ Use OpenAI API
-    client = openai.OpenAI(api_key=os.getenv("API_VAR"))
+        # ✅ Store text-based docs
+        chroma_db.add_documents(docs)
+        print(f"✅ Processed {len(docs)} text chunks.")
 
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Answer based on:\n\n{context}\n\nQ: {query}"}
-        ]
-    )
+        return docs
 
-    answer = response.choices[0].message.content
-    print(f"🔍 OpenAI Response: {answer}")
+    except Exception as e:
+        print(f"❌ Error processing PDF: {e}")
+        return []
 
-    # ✅ Find relevant tables
-    matching_tables = [table for table in data["tables"] if any(query.lower() in str(cell).lower() for cell in table.to_numpy().flatten())]
-    relevant_tables.set(matching_tables)
-
-    # ✅ Assume all images are relevant for now
-    relevant_images.set(data["images"])
-
-    return answer
-
-# ✅ Define UI
+# ✅ UI Layout
 app_ui = ui.page_fluid(
-    ui.TagList(  
-        ui.h1("Python Shiny PDF AI Assistant"),
-        
-        ui.layout_sidebar(
-            ui.sidebar(  
-                ui.input_file("pdf_file", "Upload PDF(s)", multiple=True, accept=[".pdf"]),
-                ui.input_text("query", "Enter your question"),
-                ui.input_action_button("ask", "Ask")  # ✅ Now ensures query runs only when clicked
-            ),
-
-            ui.card(  
-                ui.h3("Response"),
-                ui.output_text("response"),
-                ui.h3("Relevant Tables"),
-                ui.output_table("table_output"),
-                ui.h3("Relevant Images"),
-                ui.output_ui("image_output")
-            )
-        )
-    ),
-    theme=shinyswatch.theme.darkly()
+    ui.h2("📄 AI-Powered PDF Analyzer"),
+    ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
+    ui.input_text("query", "Ask a question about the document"),
+    ui.input_action_button("ask", "Ask AI"),  # Button to trigger search
+    ui.output_text("result_text")
 )
 
-# ✅ Define Server Logic
+# ✅ Server Logic
 def server(input, output, session):
-    """Server logic for handling user interactions"""
+    """Handles user interactions and AI processing"""
 
     @reactive.effect
-    def process_files():
-        """Extract data when PDFs are uploaded"""
-        files = input.pdf_file()
-        if files:
-            print("📂 PDF Uploaded: Processing...")
-            extract_text_tables_images_from_pdfs([f["datapath"] for f in files])
+    @reactive.event(input.file)
+    def handle_file_upload():
+        """Processes uploaded PDF file and indexes it into ChromaDB."""
+        file_info = input.file()
+        if not file_info:
+            return
+
+        file_path = file_info[0]["datapath"]  # Get uploaded file path
+
+        # ✅ Fully clear ChromaDB before processing a new file
+        reset_chromadb()
+
+        docs = process_pdf(file_path)  # Extract & store new data
+
+        if docs:
+            print("✅ PDF uploaded and processed.")
+        else:
+            print("❌ Failed to process PDF.")
+
+    answer_text = reactive.value("")
 
     @reactive.effect
-    @reactive.event(input.ask)  # ✅ Now waits for the button click!
-    def update_answer():
-        """Answer questions only when the 'Ask' button is clicked"""
+    @reactive.event(input.ask)
+    def generate_response():
+        """Handles GPT-4 response and retrieves relevant content."""
         query = input.query()
-        if query:
-            print(f"📝 Processing Query: {query}")  # ✅ Debugging print
-            answer_text.set(answer_question(query))  # ✅ Store AI response in reactive value
+        if not query:
+            print("❌ No query provided.")
+            answer_text.set("Please enter a valid question.")
+            return
 
-    # ✅ Define response output
+        # ✅ Check if PDFs have been uploaded (if ChromaDB has data)
+        if chroma_db._collection.count() == 0:
+            print("❌ No PDF uploaded. Please upload a file first.")
+            answer_text.set("No PDF uploaded. Please upload a file before asking questions.")
+            return
+
+        print(f"📝 Query received: {query}")
+
+        try:
+            # ✅ Otherwise, use GPT-4 for text-based queries
+            result = qa_chain.invoke(query)
+            result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
+            answer_text.set(result_text if result_text else "No relevant information found.")
+
+        except Exception as e:
+            print(f"❌ Error retrieving answer: {e}")
+            answer_text.set("Error retrieving response.")
+
     @render.text
-    def response():
+    def result_text():
         return answer_text.get() if answer_text.get() else "No response yet."
 
-    output.response = response
-
-    # ✅ Define table output
-    @render.table
-    def table_output():
-        """Display only relevant tables after asking a question."""
-        tables = relevant_tables.get()
-        return tables[0] if tables else pd.DataFrame({"Message": ["No relevant tables found."]})
-
-    output.table_output = table_output
-
-    # ✅ Properly define image output (Fix: Encode images)
-    @render.ui
-    def image_output():
-        """Display only relevant images after asking a question."""
-        images = relevant_images.get()
-        image_tags = []
-
-        for img in images:
-            try:
-                buffered = io.BytesIO()
-                img.save(buffered, format="PNG")  # ✅ Fix: Save image correctly
-                img_base64 = base64.b64encode(buffered.getvalue()).decode()
-                image_tags.append(f'<img src="data:image/png;base64,{img_base64}" width="200px" style="margin:5px;">')
-            except Exception as e:
-                print(f"⚠️ Error displaying image: {e}")
-
-        return ui.HTML("".join(image_tags) if image_tags else "No relevant images found.")
-
-    output.image_output = image_output
-
-# ✅ Run the app
-app = App(app_ui, server)
+# ✅ Run Shiny App
+app = App(app_ui, server)   
