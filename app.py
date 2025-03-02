@@ -1,37 +1,29 @@
 import os
-import chromadb
 import tempfile
+import chromadb
 import tiktoken
-import pandas as pd
 import PyPDF2
-from PIL import Image, UnidentifiedImageError
-import io
+from PIL import Image
+import fitz  # PyMuPDF for PDF processing
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
-from langchain.schema import Document
 from shiny import App, ui, render, reactive
-import fitz  # PyMuPDF for PDF image extraction
 
-####################################################################################
-### Initialize and define functions. 
-####################################################################################
-
-# Set OpenAI API Key
+# ✅ Initialize OpenAI API
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
-# Initialize OpenAI Embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-# Writable temporary directory for ChromaDB
+# ✅ Temporary storage for ChromaDB
 CHROMA_DB_DIR = tempfile.mkdtemp()
 
-# Reset ChromaDB
+# ✅ Reset ChromaDB
 def reset_chromadb():
     global chroma_db
     try:
@@ -46,18 +38,17 @@ def reset_chromadb():
     chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
     print(f"ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
 
-# Initialize ChromaDB
 reset_chromadb()
 
-# LLM Model Setup
+# ✅ Setup LLM
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
-# Function to count tokens
+# ✅ Count tokens
 def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
-# ✅ Optimized PDF Processing with Page Numbers
+# ✅ Process PDF and Store Page Numbers
 def process_pdf(file_path):
     try:
         loader = PyPDFLoader(file_path)
@@ -66,43 +57,46 @@ def process_pdf(file_path):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Store page numbers in metadata
         for i, doc in enumerate(docs):
-            doc.metadata["page"] = pages[i // len(pages)].metadata["page"]  # Assign page number
+            doc.metadata["page"] = pages[i // len(pages)].metadata["page"]
 
         chroma_db.add_documents(docs)
         print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
-
         return docs
     except Exception as e:
         print(f"❌ Error processing PDF: {e}")
         return []
 
-# ✅ Extract Image of Section from PDF
+# ✅ Extract Section Image from PDF
 def extract_section_image(file_path, page_number):
     try:
-        doc = fitz.open(file_path)  # Open PDF
-        page = doc[page_number - 1]  # Get Page (1-based index)
-
-        # Convert full page to an image
+        doc = fitz.open(file_path)
+        page = doc[page_number - 1]
         pix = page.get_pixmap()
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
         return img
     except Exception as e:
         print(f"❌ Error extracting image: {e}")
         return None
 
 #############################################################################################################
-### UI Layout
+### 🚀 UI LAYOUT - Improved Shiny UI
 ##############################################################################################################
-app_ui = ui.page_fluid(
-    ui.h2("📄 AI-Powered PDF Analyzer"),
-    ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
-    ui.input_text("query", "Ask a question about the document"),
-    ui.input_action_button("ask", "Ask AI"),
-    ui.output_text("result_text"),
-    ui.output_image("section_image")  # ✅ Display section image
+
+app_ui = ui.page_sidebar(
+    ui.sidebar(
+        ui.h4("📄 Upload PDF & Ask AI"),
+        ui.input_file("file", "Upload PDF", multiple=False, accept=[".pdf"]),
+        ui.input_text("query", "Ask a question", placeholder="Enter your query..."),
+        ui.input_action_button("ask", "🔍 Ask AI"),
+        ui.output_text("file_info"),
+        ui.output_text("result_text", inline=True),
+    ),
+    ui.panel_main(
+        ui.h3("📖 AI Response & Section Reference"),
+        ui.output_text("response"),
+        ui.output_image("section_image"),
+    ),
 )
 
 # ✅ Server Logic
@@ -125,20 +119,21 @@ def server(input, output, session):
         docs = process_pdf(file_path)
 
         if docs:
+            output.file_info.set(f"✅ Uploaded: {file_info[0]['name']}")
             print("✅ PDF uploaded and processed successfully.")
         else:
-            print("❌ Failed to process PDF.")
+            output.file_info.set("❌ Failed to process PDF.")
 
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
         query = input.query()
         if not query:
-            answer_text.set("Please enter a valid question.")
+            answer_text.set("⚠️ Please enter a valid question.")
             return
 
         if chroma_db._collection.count() == 0:
-            answer_text.set("No PDF uploaded. Please upload a file before asking questions.")
+            answer_text.set("⚠️ No PDF uploaded. Please upload a file first.")
             return
 
         print(f"📝 Query received: {query}")
@@ -146,11 +141,11 @@ def server(input, output, session):
         try:
             retrieved_docs = chroma_db.as_retriever().get_relevant_documents(query)
             if not retrieved_docs:
-                answer_text.set("No relevant information found.")
+                answer_text.set("⚠️ No relevant information found.")
                 return
 
             retrieved_text = " ".join([doc.page_content for doc in retrieved_docs])
-            retrieved_page.set(retrieved_docs[0].metadata["page"])  # Store first relevant page
+            retrieved_page.set(retrieved_docs[0].metadata["page"])
 
             total_tokens = count_tokens(query + retrieved_text)
             if total_tokens > 7500:
@@ -161,11 +156,11 @@ def server(input, output, session):
             answer_text.set(result["result"] if "result" in result else str(result))
 
         except Exception as e:
-            answer_text.set("Error retrieving response.")
+            answer_text.set("❌ Error retrieving response.")
             print(f"❌ Error: {e}")
 
     @render.text
-    def result_text():
+    def response():
         return answer_text.get()
 
     @render.image
