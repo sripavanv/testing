@@ -2,33 +2,40 @@ import os
 import chromadb
 import tempfile
 import tiktoken
+import pandas as pd
 import PyPDF2
+from PIL import Image, UnidentifiedImageError
+import io
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
 from langchain_community.embeddings import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
-from shiny import App, ui, render, reactive  
-
+from langchain.schema import Document
+from shiny import App, ui, render, reactive  # ✅ Shiny for Python
 ####################################################################################
-### Initialization
+###inititialize and define functions. 
+####Chatgpt 4, and openai embeddings with ChormaDB is used
 ####################################################################################
 
-# ✅ OpenAI API Key
+### Set OpenAI API Key is set
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
-# ✅ Initialize OpenAI Embeddings
+# Initialize OpenAI Embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-# ✅ Temporary directory for ChromaDB
+## writable temporary directory for ChromaDB
 CHROMA_DB_DIR = tempfile.mkdtemp()
 
-# ✅ Reset ChromaDB 
+## reset ChromaDB as sometimes it is still holding on to old uploads
 def reset_chromadb():
+    """Clears ChromaDB and reinitializes it with a clean slate."""
     global chroma_db
+
     try:
         if 'chroma_db' in globals() and chroma_db is not None:
             chroma_db.delete(ids=None)
@@ -41,84 +48,60 @@ def reset_chromadb():
     chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
     print(f"ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
 
-# ✅ Initialize ChromaDB
+# Initialize ChromaDB
 reset_chromadb()
 
-# ✅ LLM for Q&A
-llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=700)
+# LLM for Question-Answering (with max_tokens limit) set limits to keep the cost down
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
-# ✅ Optimized Retriever
-retriever = chroma_db.as_retriever(search_kwargs={"k": 15})  # 🔥 Retrieve more chunks for better context
+# Optimized Retriever (Fetch top 6 relevant chunks instead of 10). We are loosing some information but we wont hit the token limit
+retriever = chroma_db.as_retriever(search_kwargs={"k": 6})
 
-# ✅ QA Chain
+# QA Chain with Retriever llm and retreiver are defined above
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-# ✅ Token Counter
+# Function to count tokens before sending to GPT-4. This is added so we dont use up or reach limit when on large file is uploaded
 def count_tokens(text):
-    encoding = tiktoken.get_encoding("cl100k_base")
+    encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4's tokenizer
     return len(encoding.encode(text))
 
-# ✅ Extract PDF Title Function
-def extract_pdf_title(file_path):
-    """Extracts the title from the PDF metadata. Defaults to filename if unavailable."""
-    try:
-        with open(file_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            metadata = reader.metadata
-            if metadata and "/Title" in metadata:
-                return metadata["/Title"]
-    except Exception as e:
-        print(f"⚠️ Could not extract title from {file_path}: {e}")
-    
-    return os.path.basename(file_path)  # Default to filename if no title found
-
-# ✅ Process PDFs & Preserve Structure
+# ✅ Optimized PDF Processing
 def process_pdf(file_path):
-    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB while preserving section order."""
+    """Extracts text from PDF, splits it into chunks, and indexes it in ChromaDB."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
-        pdf_title = extract_pdf_title(file_path)  # ✅ Get the title
-        
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""])
+
+        # Text Splitting (400 chars + 50 overlap for better context)
+        ####text_splitter = CharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Attach metadata (title, source, chunk index, and section headers)
-        for i, doc in enumerate(docs):
-            doc.metadata["title"] = pdf_title  
-            doc.metadata["source"] = os.path.basename(file_path)
-            doc.metadata["chunk_index"] = i  # ✅ Preserve order
-
-            # ✅ Extract better section headers
-            lines = doc.page_content.split("\n")
-            if len(lines) > 1:
-                first_line = lines[0].strip()
-                second_line = lines[1].strip()
-                section_name = f"{first_line} {second_line}".strip()  # Try combining first two lines for better accuracy
-                
-                # ✅ Filter out generic, non-informative sections
-                if section_name.lower() in ["phuse 2014", "unknown section", "other", "1", "2", "3"]:
-                    section_name = "General Content"
-
-                doc.metadata["section"] = section_name
-
-        # ✅ Add text-based chunks to ChromaDB
+        # Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
+        print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
 
-        print(f"✅ Indexed {len(docs)} text chunks from {pdf_title}.")
         return docs
-    except Exception as e:
-        print(f"❌ Error processing {file_path}: {e}")
-        return []
 
+    except Exception as e:
+        print(f"❌ Error processing PDF: {e}")
+        return []
 #############################################################################################################
-### ✅ UI Layout
+###start of ui layout
 ##############################################################################################################
+# ✅ UI Layout
 app_ui = ui.page_fluid(
-    ui.h2("📄 AI-Powered Multi-PDF Analyzer"),
-    ui.h6("Upload multiple PDFs and ask questions about them."),
-    ui.input_file("file", "Upload PDF Documents", multiple=True, accept=[".pdf"]),  
-    ui.input_text("query", "Ask a question about the documents"),
+    ui.h2("📄 AI-Powered PDF Analyzer"),
+    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval"),
+    ui.h6("Consider using Section titles of the document for better results."),
+    ui.h6("Do not upload large documents as it will incur heavy costs for me."),
+    ui.h6("Ideally, a technical paper < 80 pages is a good test case."),
+    ui.h6("In order to keep the cost down, fewer chunks are retrieved."),
+    ui.h6("So the response can look concise. But when we scale it to the enterprise version,"),
+    ui.h6("this can be easily addressed to show everything."), 
+    ui.h6("finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc."),
+    ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
+    ui.input_text("query", "Ask a question about the document"),
     ui.input_action_button("ask", "Ask AI"),
     ui.output_text("result_text")
 )
@@ -130,61 +113,64 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.file)
     def handle_file_upload():
-        """Processes multiple uploaded PDF files and indexes them in ChromaDB."""
+        """Processes uploaded PDF file and indexes it in ChromaDB."""
         file_info = input.file()
         if not file_info:
             return
 
-        new_docs = []
-        for file in file_info:
-            file_path = file["datapath"]
-            docs = process_pdf(file_path)  # ✅ Process each PDF
-            new_docs.extend(docs)
+        file_path = file_info[0]["datapath"]
 
-        if new_docs:
-            print(f"✅ Indexed {len(new_docs)} chunks from {len(file_info)} PDFs into ChromaDB.")
+        # ✅ Only reset ChromaDB if a new file is uploaded
+        reset_chromadb()
+
+        docs = process_pdf(file_path)  # ✅ Process and store new data
+
+        if docs:
+            print("✅ PDF uploaded and processed successfully.")
         else:
-            print("❌ No valid PDFs processed.")
+            print("❌ Failed to process PDF.")
 
     answer_text = reactive.value("")
 
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
-        """Handles GPT-4 response while showing only AI Summary & Section References."""
+        """Handles GPT-4 response based on indexed PDF content."""
         query = input.query()
         if not query:
             print("❌ No query provided.")
             answer_text.set("Please enter a valid question.")
             return
 
-        retrieved_docs = retriever.get_relevant_documents(query)
-        retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
+        # ✅ Ensure ChromaDB has indexed data before querying
+        if chroma_db._collection.count() == 0:
+            print("❌ No PDF uploaded. Please upload a file first.")
+            answer_text.set("No PDF uploaded. Please upload a file before asking questions.")
+            return
 
-        # ✅ Keep track of seen sections for each document
-        doc_sections = {}
-        for doc in retrieved_docs:
-            title = doc.metadata.get("title", "Unknown Document")
-            section = doc.metadata.get("section", "General Content")
+        print(f"📝 Query received: {query}")
 
-            if title not in doc_sections:
-                doc_sections[title] = set()
-            doc_sections[title].add(section)
+        try:
+            # ✅ Retrieve relevant documents
+            retrieved_docs = retriever.get_relevant_documents(query)
+            combined_text = " ".join([doc.page_content for doc in retrieved_docs])  # Combine retrieved chunks
 
-        # ✅ Format references properly
-        formatted_references = []
-        for title, sections in doc_sections.items():
-            section_list = sorted(sections)[:3]  # ✅ Show max 3 unique sections per document
-            formatted_references.append(f"📄 **{title}**\n   🔹 " + "\n   🔹 ".join(section_list))
+            # ✅ Check token count before sending to GPT-4
+            total_tokens = count_tokens(query + combined_text)
+            print(f"🔢 Total tokens: {total_tokens}")
 
-        formatted_references_text = "\n\n".join(formatted_references)
+            if total_tokens > 7500:  # Keep a buffer below 8192
+                answer_text.set("⚠️ Query is too long. Try asking a more specific question.")
+                return
 
-        # ✅ Generate AI summary only
-        result = qa_chain.invoke(query)
-        result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
-        
-        # ✅ Final Response
-        answer_text.set(f"🤖 **AI Summary:**\n{result_text}\n\n📌 **Relevant Sections:**\n{formatted_references_text}")
+            # ✅ Retrieve context and query GPT-4
+            result = qa_chain.invoke(query)
+            result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
+            answer_text.set(result_text if result_text else "No relevant information found.")
+
+        except Exception as e:
+            print(f"❌ Error retrieving answer: {e}")
+            answer_text.set("Error retrieving response.")
 
     @render.text
     def result_text():
