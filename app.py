@@ -58,25 +58,40 @@ def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
-# ✅ Process Multiple PDFs
+# ✅ Extract PDF Title Function
+def extract_pdf_title(file_path):
+    """Extracts the title from the PDF metadata. Defaults to filename if unavailable."""
+    try:
+        with open(file_path, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            metadata = reader.metadata
+            if metadata and "/Title" in metadata:
+                return metadata["/Title"]
+    except Exception as e:
+        print(f"⚠️ Could not extract title from {file_path}: {e}")
+    
+    return os.path.basename(file_path)  # Default to filename if no title found
+
+# ✅ Process Multiple PDFs with Title Extraction
 def process_pdf(file_path):
     """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
-        file_name = os.path.basename(file_path)  # ✅ Extract filename
+        pdf_title = extract_pdf_title(file_path)  # ✅ Get the title
         
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Attach filename as metadata
+        # ✅ Attach title and filename as metadata
         for doc in docs:
-            doc.metadata["source"] = file_name  
+            doc.metadata["title"] = pdf_title  
+            doc.metadata["source"] = os.path.basename(file_path)
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
 
-        print(f"✅ Indexed {len(docs)} text chunks from {file_name}.")
+        print(f"✅ Indexed {len(docs)} text chunks from {pdf_title}.")
         return docs
     except Exception as e:
         print(f"❌ Error processing {file_path}: {e}")
@@ -88,6 +103,14 @@ def process_pdf(file_path):
 app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered Multi-PDF Analyzer"),
     ui.h6("Upload multiple PDFs and ask questions about them."),
+    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval"),
+    ui.h6("Consider using Section titles of the document for better results."),
+    ui.h6("Do not upload large documents as it will incur heavy costs for me."),
+    ui.h6("Ideally, a technical paper < 80 pages is a good test case."),
+    ui.h6("In order to keep the cost down, fewer chunks are retrieved."),
+    ui.h6("So the response can look concise. But when we scale it to the enterprise version,"),
+    ui.h6("this can be easily addressed to show everything."), 
+    ui.h6("finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc."),
     ui.input_file("file", "Upload PDF Documents", multiple=True, accept=[".pdf"]),  
     ui.input_text("query", "Ask a question about the documents"),
     ui.input_action_button("ask", "Ask AI"),
@@ -141,17 +164,17 @@ def server(input, output, session):
             # ✅ Retrieve relevant documents
             retrieved_docs = retriever.get_relevant_documents(query)
 
-            # ✅ Combine retrieved content with document names
+            # ✅ Combine retrieved content with document titles
             grouped_responses = {}
             for doc in retrieved_docs:
-                source = doc.metadata.get("source", "Unknown")
-                if source not in grouped_responses:
-                    grouped_responses[source] = []
-                grouped_responses[source].append(doc.page_content)
+                title = doc.metadata.get("title", "Unknown Document")
+                if title not in grouped_responses:
+                    grouped_responses[title] = []
+                grouped_responses[title].append(doc.page_content)
 
             # ✅ Format response
             formatted_response = "\n\n".join(
-                [f"📄 **Source: {source}**\n{''.join(content)}" for source, content in grouped_responses.items()]
+                [f"📄 **Title: {title}**\n{''.join(content)}" for title, content in grouped_responses.items()]
             )
 
             # ✅ Check token count before sending to GPT-4
