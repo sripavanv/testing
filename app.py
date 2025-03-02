@@ -156,26 +156,33 @@ def server(input, output, session):
         retrieved_docs = retriever.get_relevant_documents(query)
         retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
 
-        # ✅ Only show where the info comes from, without raw text
-        section_references = []
-        seen_references = set()
+        # ✅ Keep track of seen sections for each document
+        doc_sections = {}
         for doc in retrieved_docs:
             title = doc.metadata.get("title", "Unknown Document")
             section = doc.metadata.get("section", "Unknown Section")
-            reference = f"📄 **{title}** → 🔹 **{section}**"
-            
-            if reference not in seen_references:
-                section_references.append(reference)
-                seen_references.add(reference)
 
-        formatted_references = "\n".join(section_references)
+            # ✅ Skip generic/irrelevant sections
+            if section in ["Unknown Section", "other.", "PhUSE 2014", "definitions specified in the standardized response criteria into account."]:
+                continue
+
+            if title not in doc_sections:
+                doc_sections[title] = set()
+            doc_sections[title].add(section)
+
+        # ✅ Format references properly
+        formatted_references = []
+        for title, sections in doc_sections.items():
+            formatted_references.append(f"📄 **{title}**\n   🔹 " + "\n   🔹 ".join(sorted(sections)))
+
+        formatted_references_text = "\n\n".join(formatted_references[:3])  # ✅ Show max 3 unique document references
 
         # ✅ Generate AI summary only
         result = qa_chain.invoke(query)
         result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
         
         # ✅ Final Response
-        answer_text.set(f"🤖 **AI Summary:**\n{result_text}\n\n📌 **Relevant Sections:**\n{formatted_references}")
+        answer_text.set(f"🤖 **AI Summary:**\n{result_text}\n\n📌 **Relevant Sections:**\n{formatted_references_text}")
 
     @render.text
     def result_text():
