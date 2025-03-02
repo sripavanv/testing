@@ -13,3 +13,4 @@ numpy
 langchain_community
 tiktoken
 fitz
+front_end
