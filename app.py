@@ -72,9 +72,9 @@ def extract_pdf_title(file_path):
     
     return os.path.basename(file_path)  # Default to filename if no title found
 
-# ✅ Process Multiple PDFs with Title Extraction
+# ✅ Process Multiple PDFs with Ordered Chunks
 def process_pdf(file_path):
-    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB."""
+    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB with order preserved."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
@@ -83,10 +83,11 @@ def process_pdf(file_path):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Attach title and filename as metadata
-        for doc in docs:
+        # ✅ Attach title, filename, and chunk index as metadata
+        for i, doc in enumerate(docs):
             doc.metadata["title"] = pdf_title  
             doc.metadata["source"] = os.path.basename(file_path)
+            doc.metadata["chunk_index"] = i  # ✅ Track original order
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
@@ -103,14 +104,6 @@ def process_pdf(file_path):
 app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered Multi-PDF Analyzer"),
     ui.h6("Upload multiple PDFs and ask questions about them."),
-    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval"),
-    ui.h6("Consider using Section titles of the document for better results."),
-    ui.h6("Do not upload large documents as it will incur heavy costs for me."),
-    ui.h6("Ideally, a technical paper < 80 pages is a good test case."),
-    ui.h6("In order to keep the cost down, fewer chunks are retrieved."),
-    ui.h6("So the response can look concise. But when we scale it to the enterprise version,"),
-    ui.h6("this can be easily addressed to show everything."), 
-    ui.h6("finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc."),
     ui.input_file("file", "Upload PDF Documents", multiple=True, accept=[".pdf"]),  
     ui.input_text("query", "Ask a question about the documents"),
     ui.input_action_button("ask", "Ask AI"),
@@ -145,7 +138,7 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
-        """Handles GPT-4 response based on indexed PDF content."""
+        """Handles GPT-4 response while preserving chunk order."""
         query = input.query()
         if not query:
             print("❌ No query provided.")
@@ -164,6 +157,9 @@ def server(input, output, session):
             # ✅ Retrieve relevant documents
             retrieved_docs = retriever.get_relevant_documents(query)
 
+            # ✅ Sort retrieved documents by chunk index (to maintain order)
+            retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
+
             # ✅ Combine retrieved content with document titles
             grouped_responses = {}
             for doc in retrieved_docs:
@@ -172,9 +168,9 @@ def server(input, output, session):
                     grouped_responses[title] = []
                 grouped_responses[title].append(doc.page_content)
 
-            # ✅ Format response
+            # ✅ Format response (ordered)
             formatted_response = "\n\n".join(
-                [f"📄 **Title: {title}**\n{''.join(content)}" for title, content in grouped_responses.items()]
+                [f"📄 **Title: {title}**\n" + "\n".join(content) for title, content in grouped_responses.items()]
             )
 
             # ✅ Check token count before sending to GPT-4
@@ -189,7 +185,7 @@ def server(input, output, session):
             result = qa_chain.invoke(query)
             result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
             
-            # ✅ Show combined response with sources
+            # ✅ Show ordered response
             answer_text.set(formatted_response + "\n\n" + "🔍 **AI Summary:**\n" + result_text)
 
         except Exception as e:
