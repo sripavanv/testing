@@ -45,7 +45,7 @@ def reset_chromadb():
 reset_chromadb()
 
 # ✅ LLM for Q&A
-llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=700)
 
 # ✅ Optimized Retriever
 retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔥 Retrieve more chunks from all PDFs
@@ -72,9 +72,9 @@ def extract_pdf_title(file_path):
     
     return os.path.basename(file_path)  # Default to filename if no title found
 
-# ✅ Process Multiple PDFs with Ordered Chunks & Section Information
+# ✅ Process PDFs & Preserve Structure
 def process_pdf(file_path):
-    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB with order and sections."""
+    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB while preserving section order."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
@@ -89,9 +89,11 @@ def process_pdf(file_path):
             doc.metadata["source"] = os.path.basename(file_path)
             doc.metadata["chunk_index"] = i  # ✅ Preserve order
 
-            # ✅ Attempt to extract section headers
-            section_header = doc.page_content.split("\n")[0].strip()
-            doc.metadata["section"] = section_header if len(section_header) < 80 else "Unknown Section"
+            # ✅ Extract section headers (if available)
+            lines = doc.page_content.split("\n")
+            if len(lines) > 0:
+                first_line = lines[0].strip()
+                doc.metadata["section"] = first_line if len(first_line) < 80 else "Unknown Section"
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
