@@ -92,14 +92,14 @@ def process_pdf(file_path):
 # ✅ UI Layout
 app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered PDF Analyzer"),
-    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval.<br>"
-      "Consider using Section titles of the document for better results.<br><br>"
-      "Do not upload large documents as it will incur heavy costs for me.<br>"
-      "Ideally, a technical paper < 80 pages is a good test case.<br><br>"
-      "In order to keep the cost down, fewer chunks are retrieved.<br>"
-      "So the response can look concise. But when we scale it to the enterprise version,<br>"
-      "this can be easily addressed to show everything.<br>" 
-      "finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc.<br>"),
+    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval"),
+      ui.h6("Consider using Section titles of the document for better results."),
+      ui.h6("Do not upload large documents as it will incur heavy costs for me."),
+      ui.h6("Ideally, a technical paper < 80 pages is a good test case."),
+      ui.h6("In order to keep the cost down, fewer chunks are retrieved."),
+      ui.h6("So the response can look concise. But when we scale it to the enterprise version,"),
+      ui.h6("this can be easily addressed to show everything."), 
+      ui.h6("finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc."),
     ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
     ui.input_text("query", "Ask a question about the document"),
     ui.input_action_button("ask", "Ask AI"),
