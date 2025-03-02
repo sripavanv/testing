@@ -84,29 +84,19 @@ def extract_section_image(file_path, page_number):
 ##############################################################################################################
 
 app_ui = ui.page_fluid(
-    ui.tags.style("""
-        body { font-family: Arial, sans-serif; background-color: #f4f4f4; }
-        .sidebar { width: 25%; padding: 20px; background-color: #333; color: white; position: fixed; height: 100vh; }
-        .main-content { margin-left: 30%; padding: 20px; }
-        .btn-primary { background-color: #007BFF; border: none; padding: 10px 20px; color: white; cursor: pointer; }
-        .btn-primary:hover { background-color: #0056b3; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
-    """),
-    
     ui.layout_sidebar(
         ui.sidebar(
-            ui.h3("📄 PDF Analyzer", class_="card"),
+            ui.h3("📄 PDF Analyzer"),
             ui.input_file("file", "Upload PDF", multiple=False, accept=[".pdf"]),
             ui.input_text("query", "Ask a question:", placeholder="Enter your query..."),
-            ui.input_action_button("ask", "🔍 Ask AI", class_="btn-primary"),
+            ui.input_action_button("ask", "🔍 Ask AI"),
             ui.output_text("file_info"),
-            ui.output_text("result_text"),
             class_="sidebar"
         ),
-        ui.panel_main(
-            ui.h3("📖 AI Response", class_="card"),
+        ui.main_panel(
+            ui.h3("📖 AI Response"),
             ui.output_text("response"),
-            ui.h3("📸 Section Reference", class_="card"),
+            ui.h3("📸 Section Reference"),
             ui.output_image("section_image"),
             class_="main-content"
         )
