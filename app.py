@@ -80,7 +80,7 @@ def extract_section_image(file_path, page_number):
         return None
 
 #############################################################################################################
-### 🚀 UI LAYOUT - Sidebar with Main Panel
+### 🚀 UI LAYOUT - Sidebar + Main Content
 ##############################################################################################################
 
 app_ui = ui.page_fluid(
@@ -93,7 +93,7 @@ app_ui = ui.page_fluid(
             ui.output_text("file_info"),
             class_="sidebar"
         ),
-        # ✅ The main content should be placed directly in layout_sidebar(), not in "main_panel()"
+        # ✅ The main content should be placed directly in layout_sidebar()
         ui.h3("📖 AI Response"),
         ui.output_text("response"),
         ui.h3("📸 Section Reference"),
@@ -104,6 +104,7 @@ app_ui = ui.page_fluid(
 # ✅ Server Logic
 def server(input, output, session):
     uploaded_file_path = reactive.value("")
+    uploaded_file_name = reactive.value("No file uploaded.")
     answer_text = reactive.value("")
     retrieved_page = reactive.value(None)
 
@@ -121,10 +122,14 @@ def server(input, output, session):
         docs = process_pdf(file_path)
 
         if docs:
-            output.file_info.set(f"✅ Uploaded: {file_info[0]['name']}")
+            uploaded_file_name.set(f"✅ Uploaded: {file_info[0]['name']}")
             print("✅ PDF uploaded and processed successfully.")
         else:
-            output.file_info.set("❌ Failed to process PDF.")
+            uploaded_file_name.set("❌ Failed to process PDF.")
+
+    @render.text
+    def file_info():
+        return uploaded_file_name.get()
 
     @reactive.effect
     @reactive.event(input.ask)
