@@ -48,7 +48,7 @@ reset_chromadb()
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=700)
 
 # ✅ Optimized Retriever
-retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔥 Retrieve more chunks from all PDFs
+retriever = chroma_db.as_retriever(search_kwargs={"k": 15})  # 🔥 Retrieve more chunks to get full sections
 
 # ✅ QA Chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
@@ -80,7 +80,7 @@ def process_pdf(file_path):
         pages = loader.load()
         pdf_title = extract_pdf_title(file_path)  # ✅ Get the title
         
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
         # ✅ Attach metadata (title, source, chunk index, and section headers)
@@ -89,11 +89,13 @@ def process_pdf(file_path):
             doc.metadata["source"] = os.path.basename(file_path)
             doc.metadata["chunk_index"] = i  # ✅ Preserve order
 
-            # ✅ Extract section headers (if available)
+            # ✅ Extract better section headers
             lines = doc.page_content.split("\n")
-            if len(lines) > 0:
+            if len(lines) > 1:
                 first_line = lines[0].strip()
-                doc.metadata["section"] = first_line if len(first_line) < 80 else "Unknown Section"
+                second_line = lines[1].strip()
+                section_name = f"{first_line} {second_line}".strip()  # Try combining first two lines for better accuracy
+                doc.metadata["section"] = section_name if len(section_name) < 100 else "Unknown Section"
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
@@ -151,40 +153,21 @@ def server(input, output, session):
             answer_text.set("Please enter a valid question.")
             return
 
-        if chroma_db._collection.count() == 0:
-            print("❌ No PDF uploaded.")
-            answer_text.set("No PDFs uploaded. Please upload files before asking questions.")
-            return
+        retrieved_docs = retriever.get_relevant_documents(query)
+        retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
 
-        print(f"📝 Query received: {query}")
+        structured_response = []
+        for doc in retrieved_docs:
+            title = doc.metadata.get("title", "Unknown Document")
+            section = doc.metadata.get("section", "Unknown Section")
+            text = doc.page_content.strip()
 
-        try:
-            # ✅ Retrieve relevant documents
-            retrieved_docs = retriever.get_relevant_documents(query)
+            structured_response.append(f"📄 **Title: {title}**\n🔹 **Section: {section}**\n📜 {text}")
 
-            # ✅ Sort retrieved documents by chunk index
-            retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
+        formatted_response = "\n\n".join(structured_response)
 
-            # ✅ Structure response properly
-            structured_response = []
-            for doc in retrieved_docs:
-                title = doc.metadata.get("title", "Unknown Document")
-                section = doc.metadata.get("section", "Unknown Section")
-                text = doc.page_content.strip()
-
-                structured_response.append(f"📄 **Title: {title}**\n🔹 **Section: {section}**\n📜 {text}")
-
-            formatted_response = "\n\n".join(structured_response)
-
-            # ✅ AI Summary
-            result = qa_chain.invoke(query)
-            result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
-            
-            answer_text.set(formatted_response + "\n\n" + "🤖 **AI Summary:**\n" + result_text)
-
-        except Exception as e:
-            print(f"❌ Error retrieving answer: {e}")
-            answer_text.set("Error retrieving response.")
+        result = qa_chain.invoke(query)
+        answer_text.set(formatted_response + "\n\n" + "🤖 **AI Summary:**\n" + result["result"])
 
     @render.text
     def result_text():
