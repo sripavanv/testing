@@ -95,7 +95,12 @@ def process_pdf(file_path):
                 first_line = lines[0].strip()
                 second_line = lines[1].strip()
                 section_name = f"{first_line} {second_line}".strip()  # Try combining first two lines for better accuracy
-                doc.metadata["section"] = section_name if len(section_name) < 100 else "Unknown Section"
+                
+                # ✅ Filter out generic, non-informative sections
+                if section_name.lower() in ["phuse 2014", "unknown section", "other", "1", "2", "3"]:
+                    section_name = "General Content"
+
+                doc.metadata["section"] = section_name
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
@@ -160,11 +165,7 @@ def server(input, output, session):
         doc_sections = {}
         for doc in retrieved_docs:
             title = doc.metadata.get("title", "Unknown Document")
-            section = doc.metadata.get("section", "Unknown Section")
-
-            # ✅ Skip generic/irrelevant sections
-            if section in ["Unknown Section", "other.", "PhUSE 2014", "definitions specified in the standardized response criteria into account."]:
-                continue
+            section = doc.metadata.get("section", "General Content")
 
             if title not in doc_sections:
                 doc_sections[title] = set()
@@ -173,9 +174,10 @@ def server(input, output, session):
         # ✅ Format references properly
         formatted_references = []
         for title, sections in doc_sections.items():
-            formatted_references.append(f"📄 **{title}**\n   🔹 " + "\n   🔹 ".join(sorted(sections)))
+            section_list = sorted(sections)[:3]  # ✅ Show max 3 unique sections per document
+            formatted_references.append(f"📄 **{title}**\n   🔹 " + "\n   🔹 ".join(section_list))
 
-        formatted_references_text = "\n\n".join(formatted_references[:3])  # ✅ Show max 3 unique document references
+        formatted_references_text = "\n\n".join(formatted_references)
 
         # ✅ Generate AI summary only
         result = qa_chain.invoke(query)
