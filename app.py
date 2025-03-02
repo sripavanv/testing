@@ -93,13 +93,11 @@ app_ui = ui.page_fluid(
             ui.output_text("file_info"),
             class_="sidebar"
         ),
-        ui.main_panel(
-            ui.h3("📖 AI Response"),
-            ui.output_text("response"),
-            ui.h3("📸 Section Reference"),
-            ui.output_image("section_image"),
-            class_="main-content"
-        )
+        # ✅ The main content should be placed directly in layout_sidebar(), not in "main_panel()"
+        ui.h3("📖 AI Response"),
+        ui.output_text("response"),
+        ui.h3("📸 Section Reference"),
+        ui.output_image("section_image")
     )
 )
 
