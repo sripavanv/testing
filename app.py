@@ -3,8 +3,6 @@ import tempfile
 import chromadb
 import tiktoken
 import PyPDF2
-from PIL import Image
-import fitz  # PyMuPDF for PDF processing
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
 from langchain_community.embeddings import OpenAIEmbeddings
@@ -48,7 +46,7 @@ def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
-# ✅ Process PDF and Store Page Numbers
+# ✅ Process PDF and Store in ChromaDB
 def process_pdf(file_path):
     try:
         loader = PyPDFLoader(file_path)
@@ -57,27 +55,12 @@ def process_pdf(file_path):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
         docs = text_splitter.split_documents(pages)
 
-        for i, doc in enumerate(docs):
-            doc.metadata["page"] = pages[i // len(pages)].metadata["page"]
-
         chroma_db.add_documents(docs)
         print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
         return docs
     except Exception as e:
         print(f"❌ Error processing PDF: {e}")
         return []
-
-# ✅ Extract Section Image from PDF
-def extract_section_image(file_path, page_number):
-    try:
-        doc = fitz.open(file_path)
-        page = doc[page_number - 1]
-        pix = page.get_pixmap()
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        return img
-    except Exception as e:
-        print(f"❌ Error extracting image: {e}")
-        return None
 
 #############################################################################################################
 ### 🚀 UI LAYOUT - Sidebar + Main Content
@@ -93,11 +76,8 @@ app_ui = ui.page_fluid(
             ui.output_text("file_info"),
             class_="sidebar"
         ),
-        # ✅ The main content should be placed directly in layout_sidebar()
         ui.h3("📖 AI Response"),
-        ui.output_text("response"),
-        ui.h3("📸 Section Reference"),
-        ui.output_image("section_image")
+        ui.output_text("response")
     )
 )
 
@@ -106,7 +86,6 @@ def server(input, output, session):
     uploaded_file_path = reactive.value("")
     uploaded_file_name = reactive.value("No file uploaded.")
     answer_text = reactive.value("")
-    retrieved_page = reactive.value(None)  # ✅ Ensure this is a reactive value
 
     @reactive.effect
     @reactive.event(input.file)
@@ -152,7 +131,6 @@ def server(input, output, session):
                 return
 
             retrieved_text = " ".join([doc.page_content for doc in retrieved_docs])
-            retrieved_page.set(retrieved_docs[0].metadata["page"])  # ✅ Use .set()
 
             total_tokens = count_tokens(query + retrieved_text)
             if total_tokens > 7500:
@@ -169,21 +147,6 @@ def server(input, output, session):
     @render.text
     def response():
         return answer_text.get()
-
-    @render.image
-    def section_image():
-        file_path = uploaded_file_path.get()
-        page_number = retrieved_page.get()  # ✅ Use .get()
-
-        if not file_path or not page_number:
-            return None
-
-        img = extract_section_image(file_path, page_number)
-        if img:
-            img_path = os.path.join(tempfile.gettempdir(), "section_image.png")
-            img.save(img_path)
-            return img_path
-        return None
 
 # ✅ Run Shiny App
 app = App(app_ui, server)
