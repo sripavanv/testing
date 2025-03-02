@@ -48,7 +48,7 @@ reset_chromadb()
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
 # ✅ Optimized Retriever
-retriever = chroma_db.as_retriever(search_kwargs={"k": 6})  # 🔥 Retrieve more chunks from all PDFs
+retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔥 Retrieve more chunks from all PDFs
 
 # ✅ QA Chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
@@ -72,9 +72,9 @@ def extract_pdf_title(file_path):
     
     return os.path.basename(file_path)  # Default to filename if no title found
 
-# ✅ Process Multiple PDFs with Ordered Chunks
+# ✅ Process Multiple PDFs with Ordered Chunks & Section Information
 def process_pdf(file_path):
-    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB with order preserved."""
+    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB with order and sections."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
@@ -83,11 +83,15 @@ def process_pdf(file_path):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Attach title, filename, and chunk index as metadata
+        # ✅ Attach metadata (title, source, chunk index, and section headers)
         for i, doc in enumerate(docs):
             doc.metadata["title"] = pdf_title  
             doc.metadata["source"] = os.path.basename(file_path)
-            doc.metadata["chunk_index"] = i  # ✅ Track original order
+            doc.metadata["chunk_index"] = i  # ✅ Preserve order
+
+            # ✅ Attempt to extract section headers
+            section_header = doc.page_content.split("\n")[0].strip()
+            doc.metadata["section"] = section_header if len(section_header) < 80 else "Unknown Section"
 
         # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
@@ -138,16 +142,15 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
-        """Handles GPT-4 response while preserving chunk order."""
+        """Handles GPT-4 response while preserving section structure."""
         query = input.query()
         if not query:
             print("❌ No query provided.")
             answer_text.set("Please enter a valid question.")
             return
 
-        # ✅ Ensure ChromaDB has indexed data before querying
         if chroma_db._collection.count() == 0:
-            print("❌ No PDF uploaded. Please upload a file first.")
+            print("❌ No PDF uploaded.")
             answer_text.set("No PDFs uploaded. Please upload files before asking questions.")
             return
 
@@ -157,36 +160,25 @@ def server(input, output, session):
             # ✅ Retrieve relevant documents
             retrieved_docs = retriever.get_relevant_documents(query)
 
-            # ✅ Sort retrieved documents by chunk index (to maintain order)
+            # ✅ Sort retrieved documents by chunk index
             retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
 
-            # ✅ Combine retrieved content with document titles
-            grouped_responses = {}
+            # ✅ Structure response properly
+            structured_response = []
             for doc in retrieved_docs:
                 title = doc.metadata.get("title", "Unknown Document")
-                if title not in grouped_responses:
-                    grouped_responses[title] = []
-                grouped_responses[title].append(doc.page_content)
+                section = doc.metadata.get("section", "Unknown Section")
+                text = doc.page_content.strip()
 
-            # ✅ Format response (ordered)
-            formatted_response = "\n\n".join(
-                [f"📄 **Title: {title}**\n" + "\n".join(content) for title, content in grouped_responses.items()]
-            )
+                structured_response.append(f"📄 **Title: {title}**\n🔹 **Section: {section}**\n📜 {text}")
 
-            # ✅ Check token count before sending to GPT-4
-            total_tokens = count_tokens(query + formatted_response)
-            print(f"🔢 Total tokens: {total_tokens}")
+            formatted_response = "\n\n".join(structured_response)
 
-            if total_tokens > 7500:  # Keep a buffer below 8192
-                answer_text.set("⚠️ Query is too long. Try asking a more specific question.")
-                return
-
-            # ✅ Retrieve context and query GPT-4
+            # ✅ AI Summary
             result = qa_chain.invoke(query)
             result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
             
-            # ✅ Show ordered response
-            answer_text.set(formatted_response + "\n\n" + "🔍 **AI Summary:**\n" + result_text)
+            answer_text.set(formatted_response + "\n\n" + "🤖 **AI Summary:**\n" + result_text)
 
         except Exception as e:
             print(f"❌ Error retrieving answer: {e}")
