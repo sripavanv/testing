@@ -48,7 +48,7 @@ reset_chromadb()
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=700)
 
 # ✅ Optimized Retriever
-retriever = chroma_db.as_retriever(search_kwargs={"k": 15})  # 🔥 Retrieve more chunks to get full sections
+retriever = chroma_db.as_retriever(search_kwargs={"k": 15})  # 🔥 Retrieve more chunks for better context
 
 # ✅ QA Chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
@@ -146,7 +146,7 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
-        """Handles GPT-4 response while preserving section structure."""
+        """Handles GPT-4 response while showing only AI Summary & Section References."""
         query = input.query()
         if not query:
             print("❌ No query provided.")
@@ -156,18 +156,26 @@ def server(input, output, session):
         retrieved_docs = retriever.get_relevant_documents(query)
         retrieved_docs.sort(key=lambda doc: doc.metadata.get("chunk_index", 0))
 
-        structured_response = []
+        # ✅ Only show where the info comes from, without raw text
+        section_references = []
+        seen_references = set()
         for doc in retrieved_docs:
             title = doc.metadata.get("title", "Unknown Document")
             section = doc.metadata.get("section", "Unknown Section")
-            text = doc.page_content.strip()
+            reference = f"📄 **{title}** → 🔹 **{section}**"
+            
+            if reference not in seen_references:
+                section_references.append(reference)
+                seen_references.add(reference)
 
-            structured_response.append(f"📄 **Title: {title}**\n🔹 **Section: {section}**\n📜 {text}")
+        formatted_references = "\n".join(section_references)
 
-        formatted_response = "\n\n".join(structured_response)
-
+        # ✅ Generate AI summary only
         result = qa_chain.invoke(query)
-        answer_text.set(formatted_response + "\n\n" + "🤖 **AI Summary:**\n" + result["result"])
+        result_text = result["result"] if isinstance(result, dict) and "result" in result else str(result)
+        
+        # ✅ Final Response
+        answer_text.set(f"🤖 **AI Summary:**\n{result_text}\n\n📌 **Relevant Sections:**\n{formatted_references}")
 
     @render.text
     def result_text():
