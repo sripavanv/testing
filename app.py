@@ -106,7 +106,7 @@ def server(input, output, session):
     uploaded_file_path = reactive.value("")
     uploaded_file_name = reactive.value("No file uploaded.")
     answer_text = reactive.value("")
-    retrieved_page = reactive.value(None)
+    retrieved_page = reactive.value(None)  # ✅ Ensure this is a reactive value
 
     @reactive.effect
     @reactive.event(input.file)
@@ -152,7 +152,7 @@ def server(input, output, session):
                 return
 
             retrieved_text = " ".join([doc.page_content for doc in retrieved_docs])
-            retrieved_page.set(retrieved_docs[0].metadata["page"])
+            retrieved_page.set(retrieved_docs[0].metadata["page"])  # ✅ Use .set()
 
             total_tokens = count_tokens(query + retrieved_text)
             if total_tokens > 7500:
@@ -173,7 +173,7 @@ def server(input, output, session):
     @render.image
     def section_image():
         file_path = uploaded_file_path.get()
-        page_number = retrieved_page.get()  # ✅ Ensure `.get()` is used for reactive values
+        page_number = retrieved_page.get()  # ✅ Use .get()
 
         if not file_path or not page_number:
             return None
