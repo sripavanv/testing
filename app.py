@@ -48,7 +48,7 @@ reset_chromadb()
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
 # ✅ Optimized Retriever
-retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔥 Retrieve more chunks from all PDFs
+retriever = chroma_db.as_retriever(search_kwargs={"k": 6})  # 🔥 Retrieve more chunks from all PDFs
 
 # ✅ QA Chain
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
