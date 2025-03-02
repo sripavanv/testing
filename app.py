@@ -92,6 +92,10 @@ def process_pdf(file_path):
 # ✅ UI Layout
 app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered PDF Analyzer"),
+    ui.h5(" RAG based LLM. So prompts will make a big difference ins retreival. Consider using Section titles of the document for better results"),
+    ui.h5("Do not upload large documents as it will incur heay cost for me. ideally a technical paper < 80 pages is a good test case"),
+    ui.h5("In order to keep the cost down, less chunks are retreiuved. So the response can look concise. But when we scale it to enterprize version, this can be easily address to showw everything"),
+    
     ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
     ui.input_text("query", "Ask a question about the document"),
     ui.input_action_button("ask", "Ask AI"),
