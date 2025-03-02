@@ -10,23 +10,28 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import Document
 from shiny import App, ui, render, reactive  # ✅ Shiny for Python
+####################################################################################
+###inititialize and define functions. 
+####Chatgpt 4, and openai embeddings with ChormaDB is used
+####################################################################################
 
-# ✅ Ensure OpenAI API Key is set
+### Set OpenAI API Key is set
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise ValueError("❌ OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
+    raise ValueError("OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
-# ✅ Use a writable temporary directory for ChromaDB
-CHROMA_DB_DIR = tempfile.mkdtemp()
-
-# ✅ Initialize OpenAI Embeddings
+# Initialize OpenAI Embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-# ✅ Function to reset ChromaDB efficiently
+## writable temporary directory for ChromaDB
+CHROMA_DB_DIR = tempfile.mkdtemp()
+
+## reset ChromaDB as sometimes it is still holding on to old uploads
 def reset_chromadb():
     """Clears ChromaDB and reinitializes it with a clean slate."""
     global chroma_db
@@ -41,21 +46,21 @@ def reset_chromadb():
         print(f"⚠️ Warning: Could not clear ChromaDB properly: {e}")
 
     chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
-    print(f"✅ ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
+    print(f"ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
 
-# ✅ Initialize ChromaDB
+# Initialize ChromaDB
 reset_chromadb()
 
-# ✅ LLM for Question-Answering (with max_tokens limit)
+# LLM for Question-Answering (with max_tokens limit) set limits to keep the cost down
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
-# ✅ Optimized Retriever (Fetch top 5 relevant chunks instead of 10)
-retriever = chroma_db.as_retriever(search_kwargs={"k": 5})
+# Optimized Retriever (Fetch top 6 relevant chunks instead of 10). We are loosing some information but we wont hit the token limit
+retriever = chroma_db.as_retriever(search_kwargs={"k": 6})
 
-# ✅ QA Chain with Retriever
+# QA Chain with Retriever llm and retreiver are defined above
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-# ✅ Function to count tokens before sending to GPT-4
+# Function to count tokens before sending to GPT-4. This is added so we dont use up or reach limit when on large file is uploaded
 def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4's tokenizer
     return len(encoding.encode(text))
@@ -67,11 +72,12 @@ def process_pdf(file_path):
         loader = PyPDFLoader(file_path)
         pages = loader.load()
 
-        # ✅ Smart Text Splitting (400 chars + 50 overlap for better context)
-        text_splitter = CharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        # Text Splitting (400 chars + 50 overlap for better context)
+        ####text_splitter = CharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # ✅ Add text-based chunks to ChromaDB
+        # Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
         print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
 
@@ -80,7 +86,9 @@ def process_pdf(file_path):
     except Exception as e:
         print(f"❌ Error processing PDF: {e}")
         return []
-
+#############################################################################################################
+###start of ui layout
+##############################################################################################################
 # ✅ UI Layout
 app_ui = ui.page_fluid(
     ui.h2("📄 AI-Powered PDF Analyzer"),
