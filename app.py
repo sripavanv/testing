@@ -9,29 +9,29 @@ import io
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.chains import RetrievalQA
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import Document
 from shiny import App, ui, render, reactive  # ✅ Shiny for Python
+
 ####################################################################################
-###inititialize and define functions. 
-####Chatgpt 4, and openai embeddings with ChormaDB is used
+### Initialize and define functions. 
+### ChatGPT-4, OpenAI embeddings, and ChromaDB are used.
 ####################################################################################
 
-### Set OpenAI API Key is set
+# ✅ Set OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
-# Initialize OpenAI Embeddings
+# ✅ Initialize OpenAI Embeddings
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-## writable temporary directory for ChromaDB
+# ✅ Writable temporary directory for ChromaDB
 CHROMA_DB_DIR = tempfile.mkdtemp()
 
-## reset ChromaDB as sometimes it is still holding on to old uploads
+# ✅ Reset ChromaDB (but not on every upload)
 def reset_chromadb():
     """Clears ChromaDB and reinitializes it with a clean slate."""
     global chroma_db
@@ -48,60 +48,61 @@ def reset_chromadb():
     chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
     print(f"ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
 
-# Initialize ChromaDB
+# ✅ Initialize ChromaDB
 reset_chromadb()
 
-# LLM for Question-Answering (with max_tokens limit) set limits to keep the cost down
+# ✅ LLM for Question-Answering (limits to keep costs down)
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
-# Optimized Retriever (Fetch top 6 relevant chunks instead of 10). We are loosing some information but we wont hit the token limit
+# ✅ Optimized Retriever (Fetches top 6 relevant chunks)
 retriever = chroma_db.as_retriever(search_kwargs={"k": 6})
 
-# QA Chain with Retriever llm and retreiver are defined above
+# ✅ QA Chain with Retriever
 qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
 
-# Function to count tokens before sending to GPT-4. This is added so we dont use up or reach limit when on large file is uploaded
+# ✅ Function to count tokens before sending to GPT-4
 def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4's tokenizer
     return len(encoding.encode(text))
 
-# ✅ Optimized PDF Processing
+# ✅ Optimized PDF Processing for Multiple PDFs
 def process_pdf(file_path):
-    """Extracts text from PDF, splits it into chunks, and indexes it in ChromaDB."""
+    """Extracts text from PDFs, splits it into chunks, and indexes it in ChromaDB."""
     try:
         loader = PyPDFLoader(file_path)
         pages = loader.load()
-
-        # Text Splitting (400 chars + 50 overlap for better context)
-        ####text_splitter = CharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        file_name = os.path.basename(file_path)  # ✅ Extract filename
+        
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50, separators=["\n\n", "\n", " ", ""])
         docs = text_splitter.split_documents(pages)
 
-        # Add text-based chunks to ChromaDB
+        # ✅ Attach filename as metadata to each chunk
+        for doc in docs:
+            doc.metadata["source"] = file_name  
+
+        # ✅ Add text-based chunks to ChromaDB
         chroma_db.add_documents(docs)
-        print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
 
+        print(f"✅ Indexed {len(docs)} text chunks from {file_name}.")
         return docs
-
     except Exception as e:
-        print(f"❌ Error processing PDF: {e}")
+        print(f"❌ Error processing {file_path}: {e}")
         return []
+
 #############################################################################################################
-###start of ui layout
+### ✅ Start of UI Layout
 ##############################################################################################################
-# ✅ UI Layout
 app_ui = ui.page_fluid(
-    ui.h2("📄 AI-Powered PDF Analyzer"),
-    ui.h6("RAG-based LLM. So prompts will make a big difference in retrieval"),
-    ui.h6("Consider using Section titles of the document for better results."),
-    ui.h6("Do not upload large documents as it will incur heavy costs for me."),
-    ui.h6("Ideally, a technical paper < 80 pages is a good test case."),
-    ui.h6("In order to keep the cost down, fewer chunks are retrieved."),
-    ui.h6("So the response can look concise. But when we scale it to the enterprise version,"),
-    ui.h6("this can be easily addressed to show everything."), 
-    ui.h6("finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc."),
-    ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
-    ui.input_text("query", "Ask a question about the document"),
+    ui.h2("📄 AI-Powered Multi-PDF Analyzer"),
+    ui.h6("RAG-based LLM. Prompts will impact retrieval quality."),
+    ui.h6("Use document section titles for better results."),
+    ui.h6("Avoid large files to reduce processing costs."),
+    ui.h6("Technical papers (< 80 pages) are ideal test cases."),
+    ui.h6("This version retrieves fewer chunks to keep costs low."),
+    ui.h6("If responses seem incomplete, the enterprise version can scale."),
+    ui.h6("⚠️ Known issue: Re-uploading after first upload may cause issues. Restart the app if needed."),
+    ui.input_file("file", "Upload PDF Documents", multiple=True, accept=[".pdf"]),  # ✅ Supports multiple files
+    ui.input_text("query", "Ask a question about the documents"),
     ui.input_action_button("ask", "Ask AI"),
     ui.output_text("result_text")
 )
@@ -113,22 +114,21 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.file)
     def handle_file_upload():
-        """Processes uploaded PDF file and indexes it in ChromaDB."""
+        """Processes multiple uploaded PDF files and indexes them in ChromaDB."""
         file_info = input.file()
         if not file_info:
             return
 
-        file_path = file_info[0]["datapath"]
+        new_docs = []
+        for file in file_info:
+            file_path = file["datapath"]
+            docs = process_pdf(file_path)  # ✅ Process each PDF
+            new_docs.extend(docs)  # ✅ Store all extracted documents
 
-        # ✅ Only reset ChromaDB if a new file is uploaded
-        reset_chromadb()
-
-        docs = process_pdf(file_path)  # ✅ Process and store new data
-
-        if docs:
-            print("✅ PDF uploaded and processed successfully.")
+        if new_docs:
+            print(f"✅ Indexed {len(new_docs)} chunks from {len(file_info)} PDFs into ChromaDB.")
         else:
-            print("❌ Failed to process PDF.")
+            print("❌ No valid PDFs processed.")
 
     answer_text = reactive.value("")
 
@@ -145,7 +145,7 @@ def server(input, output, session):
         # ✅ Ensure ChromaDB has indexed data before querying
         if chroma_db._collection.count() == 0:
             print("❌ No PDF uploaded. Please upload a file first.")
-            answer_text.set("No PDF uploaded. Please upload a file before asking questions.")
+            answer_text.set("No PDFs uploaded. Please upload files before asking questions.")
             return
 
         print(f"📝 Query received: {query}")
@@ -153,7 +153,11 @@ def server(input, output, session):
         try:
             # ✅ Retrieve relevant documents
             retrieved_docs = retriever.get_relevant_documents(query)
-            combined_text = " ".join([doc.page_content for doc in retrieved_docs])  # Combine retrieved chunks
+
+            # ✅ Combine retrieved content with document source names
+            combined_text = "\n\n".join(
+                [f"📄 Source: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}" for doc in retrieved_docs]
+            )
 
             # ✅ Check token count before sending to GPT-4
             total_tokens = count_tokens(query + combined_text)
