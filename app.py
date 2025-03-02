@@ -99,7 +99,7 @@ app_ui = ui.page_fluid(
       "In order to keep the cost down, fewer chunks are retrieved.<br>"
       "So the response can look concise. But when we scale it to the enterprise version,<br>"
       "this can be easily addressed to show everything.<br>" 
-      "finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc.<br>")
+      "finally there is a issue when you reupload after the first upload, it isnt generating a good response. so please close and reopen if you want to upload a new doc.<br>"),
     ui.input_file("file", "Upload PDF Document", multiple=False, accept=[".pdf"]),
     ui.input_text("query", "Ask a question about the document"),
     ui.input_action_button("ask", "Ask AI"),
