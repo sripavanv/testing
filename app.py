@@ -173,7 +173,8 @@ def server(input, output, session):
     @render.image
     def section_image():
         file_path = uploaded_file_path.get()
-        page_number = retrieved_page.get()
+        page_number = retrieved_page.get()  # ✅ Ensure `.get()` is used for reactive values
+
         if not file_path or not page_number:
             return None
 
