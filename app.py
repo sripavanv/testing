@@ -37,7 +37,7 @@ def reset_chromadb():
 reset_chromadb()
 
 # ✅ Setup LLM with OpenAI
-llm = ChatOpenAI(model_name="gpt-4", temperature=0.3, openai_api_key=OPENAI_API_KEY, max_tokens=500)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=1500)
 
 # ✅ Count tokens
 def count_tokens(text):
@@ -50,7 +50,7 @@ def process_pdf(file_path):
         loader = PyPDFLoader(file_path)
         pages = loader.load()
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)  # 🔹 Larger Chunks
         docs = text_splitter.split_documents(pages)
 
         global chroma_db
@@ -132,25 +132,28 @@ def server(input, output, session):
         print(f"📝 Query received: {query}")
 
         try:
-            # ✅ Use LangChain's retriever instead of manual retrieval
-            retriever = chroma_db.as_retriever(search_kwargs={"k": 7}) 
-
+            # ✅ Use LangChain's retriever with higher `k` for deeper search
+            retriever = chroma_db.as_retriever(search_kwargs={"k": 15})
             retrieved_docs = retriever.get_relevant_documents(query)
 
             if not retrieved_docs:
                 answer_text.set("⚠️ No relevant information found.")
                 return
 
-            retrieved_text = " ".join([doc.page_content for doc in retrieved_docs])
+            # ✅ Merge all retrieved documents for better context
+            merged_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
 
-            total_tokens = count_tokens(query + retrieved_text)
-            if total_tokens > 7500:
-                answer_text.set("⚠️ Query too long. Try asking a more specific question.")
-                return
+            # ✅ Explicitly instruct the LLM to list all conditions
+            prompt = f"""
+            Based on the extracted content, list all conditions related to "{query}" in a detailed manner.
+            Ensure completeness and do not summarize excessively.
+            Here is the relevant document context:
+            {merged_text}
+            """
 
             # ✅ Use LangChain's RetrievalQA for response generation
             qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
-            result = qa_chain.run(query)
+            result = qa_chain.run(prompt)
 
             answer_text.set(result)
 
