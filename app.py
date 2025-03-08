@@ -75,20 +75,20 @@ app_ui = ui.page_fluid(
             ui.input_action_button("ask", "🔍 Ask AI"),
             ui.output_text("file_info"),
             class_="sidebar"
-        ),
+        )),
         
         #  Wrapped AI Response inside a panel container
-        ui.panel_well(
+        ui.card(
             ui.h6("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
             ui.h6("Since this is a RAG-based implementation, prompts significantly impact responses. Use keywords and section titles from your PDF."),
             ui.h6("only text is currenty extracted from pdf. images and tables are not. so you will only see summary in the form of text")
         ),
-        ui.panel_well( 
+        ui.card( 
             ui.h3("📖 AI Summary"),
             ui.output_text("response")
         )
     )
-)
+
 
 #  Server Logic
 def server(input, output, session):
