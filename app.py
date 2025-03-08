@@ -159,7 +159,6 @@ def server(input, output, session):
             #  Explicitly instruct the LLM to list all conditions
             prompt = f"""
             Based on the extracted content, list all conditions related to "{query}" in a **bullet-point format**.
-            Each condition should start on a **new line with a hyphen (-) or a bullet (•)**.
             Ensure completeness and avoid excessive summarization.
             Here is the relevant document context:
             {merged_text}
@@ -169,7 +168,10 @@ def server(input, output, session):
             qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
             result = qa_chain.run(prompt)
 
-            answer_text.set(result)
+            # Ensure bullet points formatting
+            formatted_response = result.replace("\n", "\n• ")  # Adds bullet points to each new line
+            answer_text.set(f"• {formatted_response}")  # Ensures the first line also has a bullet point
+
 
         except Exception as e:
             answer_text.set(" Error retrieving response.")
