@@ -83,7 +83,7 @@ app_ui = ui.page_fluid(
             ui.h6("Since this is a RAG based App., Prompts will result in signficant impact in response.-- "),
             ui.h6(" --Try using keywords from the pdf you uploaded like section headers etc to get accurate response "),
             ui.h6("There is a known issue where a new pdf is uploaded, the ChormaDB might not get cleared. Work is in progress."),
-            ui.output_text("AI summary based on the Pdf")
+            ui.output_text("ai_summary")
         )
     )
 )
