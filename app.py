@@ -78,6 +78,7 @@ app_ui = ui.page_fluid(
         )),
         
         #  Wrapped AI Response inside a panel container
+    ui.panel_main(
         ui.card(
             ui.h6("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
             ui.h6("Since this is a RAG-based implementation, prompts significantly impact responses. Use keywords and section titles from your PDF."),
@@ -88,6 +89,7 @@ app_ui = ui.page_fluid(
             ui.output_text("response")
         )
     )
+)
 
 
 #  Server Logic
