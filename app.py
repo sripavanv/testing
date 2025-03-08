@@ -83,7 +83,7 @@ app_ui = ui.page_fluid(
             ui.h6("Since this is a RAG-based implementation, prompts significantly impact responses. Use keywords and section titles from your PDF."),
             ui.h6("only text is currenty extracted from pdf. images and tables are not. so you will only see summary in the form of text")
         ),
-        ui.panel_well(
+        ui.panel_well( 
             ui.h3("📖 AI Summary"),
             ui.output_text("response")
         )
