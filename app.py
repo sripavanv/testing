@@ -66,6 +66,7 @@ def process_pdf(file_path):
 ###  UI LAYOUT - Sidebar + Main Content
 ##############################################################################################################
 
+
 app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.sidebar(
@@ -75,16 +76,15 @@ app_ui = ui.page_fluid(
             ui.input_action_button("ask", "🔍 Ask AI"),
             ui.output_text("file_info"),
             class_="sidebar"
-        )),
-        
-        #  Wrapped AI Response inside a panel container
-    ui.panel_main(
-        ui.card(
-            ui.h6("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
-            ui.h6("Since this is a RAG-based implementation, prompts significantly impact responses. Use keywords and section titles from your PDF."),
-            ui.h6("only text is currenty extracted from pdf. images and tables are not. so you will only see summary in the form of text")
         ),
-        ui.card( 
+        # Main content area (Cards instead of panel_well)
+        ui.card(
+            ui.h5("ℹ️ App Information"),
+            ui.p("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
+            ui.p("Prompts significantly impact responses. Use keywords and section titles from your PDF."),
+            ui.p("Only text is extracted from the PDF. Images and tables are not included."),
+        ),
+        ui.card(
             ui.h3("📖 AI Summary"),
             ui.output_text("response")
         )
