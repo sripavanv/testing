@@ -120,7 +120,7 @@ def server(input, output, session):
     @render.text
     def file_info():
         return uploaded_file_name.get()
-
+######################################## functions defined under reactive.effect  and reactive.event are run automatically when the event is triggered#####
     @reactive.effect
     @reactive.event(input.ask)
     def generate_response():
@@ -138,7 +138,7 @@ def server(input, output, session):
 
         try:
             #  Use LangChain's retriever with dynamic retrieval depth
-            retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔹 Reduce k if needed
+            retriever = chroma_db.as_retriever(search_kwargs={"k": 8})  # 🔹 Reduce k if needed
             retrieved_docs = retriever.get_relevant_documents(query)
 
             if not retrieved_docs:
