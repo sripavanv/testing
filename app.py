@@ -37,9 +37,9 @@ def reset_chromadb():
 reset_chromadb()
 
 # ✅ Setup LLM with OpenAI
-llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=1500)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=1200)  # 🔹 Lowered max_tokens
 
-# ✅ Count tokens
+# ✅ Count tokens in a string
 def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
@@ -50,7 +50,7 @@ def process_pdf(file_path):
         loader = PyPDFLoader(file_path)
         pages = loader.load()
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)  # 🔹 Larger Chunks
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)  # 🔹 Reduced chunk size slightly
         docs = text_splitter.split_documents(pages)
 
         global chroma_db
@@ -132,16 +132,23 @@ def server(input, output, session):
         print(f"📝 Query received: {query}")
 
         try:
-            # ✅ Use LangChain's retriever with higher `k` for deeper search
-            retriever = chroma_db.as_retriever(search_kwargs={"k": 15})
+            # ✅ Use LangChain's retriever with dynamic retrieval depth
+            retriever = chroma_db.as_retriever(search_kwargs={"k": 10})  # 🔹 Reduce k if needed
             retrieved_docs = retriever.get_relevant_documents(query)
 
             if not retrieved_docs:
                 answer_text.set("⚠️ No relevant information found.")
                 return
 
-            # ✅ Merge all retrieved documents for better context
+            # ✅ Merge retrieved text but keep it within token limits
             merged_text = "\n\n".join([doc.page_content for doc in retrieved_docs])
+
+            # ✅ Check token count and truncate if necessary
+            total_tokens = count_tokens(merged_text + query)
+            max_allowed_tokens = 6500  # 🔹 Adjust this to avoid exceeding GPT-4's 8192 limit
+            if total_tokens > max_allowed_tokens:
+                print(f"⚠️ Merged text too long ({total_tokens} tokens). Truncating...")
+                merged_text = merged_text[:int(len(merged_text) * (max_allowed_tokens / total_tokens))]
 
             # ✅ Explicitly instruct the LLM to list all conditions
             prompt = f"""
