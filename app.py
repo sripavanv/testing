@@ -11,17 +11,17 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
 from shiny import App, ui, render, reactive
 
-# Initialize OpenAI API. Set as env variable as it is being hosted.
+# ✅ Initialize OpenAI API
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OpenAI API Key is missing! Set OPENAI_API_KEY as an environment variable.")
 
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-#Temp storage for ChromaDB. need to create a tempfile unlike running locally.
+# ✅ Temporary storage for ChromaDB
 CHROMA_DB_DIR = tempfile.mkdtemp()
 
-# Reset ChromaDB
+# ✅ Reset ChromaDB
 def reset_chromadb():
     global chroma_db
     try:
@@ -38,15 +38,15 @@ def reset_chromadb():
 
 reset_chromadb()
 
-# Setup LLM. keep the temp lower to create fact based reponse. token=500 is a good balance for cost.
-llm = ChatOpenAI(model_name="gpt-4", temperature=0.1, openai_api_key=OPENAI_API_KEY, max_tokens=500)
-#########setup functions
-# function to Count tokens
+# ✅ Setup LLM
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
+
+# ✅ Count tokens
 def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
-# Process PDF and Store in ChromaDB
+# ✅ Process PDF and Store in ChromaDB
 def process_pdf(file_path):
     try:
         loader = PyPDFLoader(file_path)
@@ -56,39 +56,39 @@ def process_pdf(file_path):
         docs = text_splitter.split_documents(pages)
 
         chroma_db.add_documents(docs)
-        print(f"Indexed {len(docs)} text chunks into ChromaDB.")
+        print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
         return docs
     except Exception as e:
-        print(f"Error processing PDF: {e}")
+        print(f"❌ Error processing PDF: {e}")
         return []
 
 #############################################################################################################
-### UI LAYOUT - Sidebar + Main Content
+### 🚀 UI LAYOUT - Sidebar + Main Content
 ##############################################################################################################
 
 app_ui = ui.page_fluid(
     ui.layout_sidebar(
         ui.sidebar(
-            ui.h3("PDF Analyzer"),
+            ui.h3("📄 PDF Analyzer"),
             ui.input_file("file", "Upload PDF", multiple=False, accept=[".pdf"]),
             ui.input_text("query", "Ask a question:", placeholder="Enter your query..."),
             ui.input_action_button("ask", "🔍 Ask AI"),
             ui.output_text("file_info"),
             class_="sidebar"
         ),
-       
-       # ui.h3("Qurry Result based on the Pdf"),
+        
+        # ✅ Wrapped AI Response inside a panel container
         ui.panel_well(
-            ui.h6("OpenAI LLM, Embeddings, Langchain for retreival and ChromaDB for Vector DB "),
-            ui.h6("Since this is a RAG based App., Prompts will result in signficant impact in response.-- "),
-            ui.h6(" --Try using keywords from the pdf you uploaded like section headers etc to get accurate response "),
-            ui.h6("There is a known issue where a new pdf is uploaded, the ChormaDB might not get cleared. Work is in progress."),
-            ui.output_text("ai_summary")
+            
+            ui.h6(" RAG based LLM using OpenAI, openAI embedding for retreival, ChromaDB for vector DB."),
+            ui.h6(" Since this is a RAG based implementation, Prompts will make a major impact on the response. using keywords and title of sections from your PDF will help."), 
+            ui.h3(" AI Summary"),
+            ui.output_text("response")
         )
     )
 )
 
-# Server 
+# ✅ Server Logic
 def server(input, output, session):
     uploaded_file_path = reactive.value("")
     uploaded_file_name = reactive.value("No file uploaded.")
