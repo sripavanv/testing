@@ -1,6 +1,5 @@
 import os
 import tempfile
-import chromadb
 import tiktoken
 import PyPDF2
 from langchain_community.document_loaders import PyPDFLoader
@@ -20,25 +19,24 @@ embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
 # ✅ Temporary storage for ChromaDB
 CHROMA_DB_DIR = tempfile.mkdtemp()
+chroma_db = None  # Define globally for reset
 
-# ✅ Reset ChromaDB
+# ✅ Reset ChromaDB using LangChain
 def reset_chromadb():
     global chroma_db
     try:
-        if 'chroma_db' in globals() and chroma_db is not None:
-            chroma_db.delete(ids=None)
-            chroma_db.persist()
-            del chroma_db
-            print("🗑️ ChromaDB records cleared.")
+        if chroma_db is not None:
+            chroma_db.delete_collection()
+            print("🗑️ ChromaDB cleared.")
     except Exception as e:
         print(f"⚠️ Warning: Could not clear ChromaDB properly: {e}")
 
     chroma_db = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
-    print(f"ChromaDB reset. Storage location: {CHROMA_DB_DIR}")
+    print(f"✅ ChromaDB reset at {CHROMA_DB_DIR}")
 
 reset_chromadb()
 
-# ✅ Setup LLM
+# ✅ Setup LLM with OpenAI
 llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
 # ✅ Count tokens
@@ -46,7 +44,7 @@ def count_tokens(text):
     encoding = tiktoken.get_encoding("cl100k_base")
     return len(encoding.encode(text))
 
-# ✅ Process PDF and Store in ChromaDB
+# ✅ Process PDF and Store in ChromaDB using LangChain
 def process_pdf(file_path):
     try:
         loader = PyPDFLoader(file_path)
@@ -55,7 +53,9 @@ def process_pdf(file_path):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
         docs = text_splitter.split_documents(pages)
 
-        chroma_db.add_documents(docs)
+        global chroma_db
+        chroma_db = Chroma.from_documents(docs, embeddings, persist_directory=CHROMA_DB_DIR)
+
         print(f"✅ Indexed {len(docs)} text chunks into ChromaDB.")
         return docs
     except Exception as e:
@@ -79,10 +79,9 @@ app_ui = ui.page_fluid(
         
         # ✅ Wrapped AI Response inside a panel container
         ui.panel_well(
-            
-            ui.h6(" RAG based LLM using OpenAI, openAI embedding for retreival, ChromaDB for vector DB."),
-            ui.h6(" Since this is a RAG based implementation, Prompts will make a major impact on the response. using keywords and title of sections from your PDF will help."), 
-            ui.h3(" AI Summary"),
+            ui.h6("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
+            ui.h6("Since this is a RAG-based implementation, prompts significantly impact responses. Use keywords and section titles from your PDF."),
+            ui.h3("📖 AI Summary"),
             ui.output_text("response")
         )
     )
@@ -125,14 +124,18 @@ def server(input, output, session):
             answer_text.set("⚠️ Please enter a valid question.")
             return
 
-        if chroma_db._collection.count() == 0:
+        global chroma_db
+        if chroma_db is None or chroma_db._collection.count() == 0:
             answer_text.set("⚠️ No PDF uploaded. Please upload a file first.")
             return
 
         print(f"📝 Query received: {query}")
 
         try:
-            retrieved_docs = chroma_db.as_retriever().get_relevant_documents(query)
+            # ✅ Use LangChain's retriever instead of manual retrieval
+            retriever = chroma_db.as_retriever()
+            retrieved_docs = retriever.get_relevant_documents(query)
+
             if not retrieved_docs:
                 answer_text.set("⚠️ No relevant information found.")
                 return
@@ -144,8 +147,11 @@ def server(input, output, session):
                 answer_text.set("⚠️ Query too long. Try asking a more specific question.")
                 return
 
-            result = RetrievalQA.from_chain_type(llm=llm, retriever=chroma_db.as_retriever()).invoke(query)
-            answer_text.set(result["result"] if "result" in result else str(result))
+            # ✅ Use LangChain's RetrievalQA for response generation
+            qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+            result = qa_chain.run(query)
+
+            answer_text.set(result)
 
         except Exception as e:
             answer_text.set("❌ Error retrieving response.")
