@@ -37,7 +37,7 @@ def reset_chromadb():
 reset_chromadb()
 
 # ✅ Setup LLM with OpenAI
-llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=OPENAI_API_KEY, max_tokens=500)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0.4, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
 # ✅ Count tokens
 def count_tokens(text):
@@ -133,7 +133,7 @@ def server(input, output, session):
 
         try:
             # ✅ Use LangChain's retriever instead of manual retrieval
-            retriever = chroma_db.as_retriever(search_kwargs={"k": 6}) 
+            retriever = chroma_db.as_retriever(search_kwargs={"k": 7}) 
 
             retrieved_docs = retriever.get_relevant_documents(query)
 
