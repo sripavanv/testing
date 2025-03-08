@@ -168,10 +168,7 @@ def server(input, output, session):
             qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
             result = qa_chain.run(prompt)
 
-            # Ensure bullet points formatting
-            formatted_response = result.replace("\n", "\n• ")  # Adds bullet points to each new line
-            answer_text.set(f"• {formatted_response}")  # Ensures the first line also has a bullet point
-
+            answer_text.set(result)
 
         except Exception as e:
             answer_text.set(" Error retrieving response.")
