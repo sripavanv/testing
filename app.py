@@ -133,7 +133,8 @@ def server(input, output, session):
 
         try:
             # ✅ Use LangChain's retriever instead of manual retrieval
-            retriever = chroma_db.as_retriever()
+            retriever = chroma_db.as_retriever(search_kwargs={"k": 6}) 
+
             retrieved_docs = retriever.get_relevant_documents(query)
 
             if not retrieved_docs:
