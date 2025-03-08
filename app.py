@@ -80,7 +80,8 @@ app_ui = ui.page_fluid(
         # Main content area (Cards instead of panel_well)
         ui.card(
             ui.h5("ℹ️ App Information"),
-            ui.p("RAG-based LLM using OpenAI, LangChain embeddings, and ChromaDB for vector storage."),
+            ui.p("RAG-based LLM using OpenAI,  openAI-embeddings, and ChromaDB for vector storage."),
+            ui.p("langchain for handgling embedding and retrieval."),
             ui.p("Prompts significantly impact responses. Use keywords and section titles from your PDF."),
             ui.p("Only text is extracted from the PDF. Images and tables are not included."),
         ),
@@ -157,8 +158,9 @@ def server(input, output, session):
 
             #  Explicitly instruct the LLM to list all conditions
             prompt = f"""
-            Based on the extracted content, list all conditions related to "{query}" in a detailed manner.
-            Ensure completeness and do not summarize excessively.
+            Based on the extracted content, list all conditions related to "{query}" in a **bullet-point format**.
+            Each condition should start on a **new line with a hyphen (-) or a bullet (•)**.
+            Ensure completeness and avoid excessive summarization.
             Here is the relevant document context:
             {merged_text}
             """
