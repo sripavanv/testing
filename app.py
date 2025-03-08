@@ -37,7 +37,7 @@ def reset_chromadb():
 reset_chromadb()
 
 # ✅ Setup LLM with OpenAI
-llm = ChatOpenAI(model_name="gpt-4", temperature=0.2, openai_api_key=OPENAI_API_KEY, max_tokens=500)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0.3, openai_api_key=OPENAI_API_KEY, max_tokens=500)
 
 # ✅ Count tokens
 def count_tokens(text):
